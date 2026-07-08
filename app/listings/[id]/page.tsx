@@ -81,14 +81,6 @@ function cleanNeighborhood(city: string, neighborhood: string | null) {
   return neighborhood;
 }
 
-function getWebsiteHref(website: string) {
-  if (website.startsWith("http://") || website.startsWith("https://")) {
-    return website;
-  }
-
-  return `https://${website}`;
-}
-
 function getLocationLine(property: Property) {
   return [
     cleanNeighborhood(property.city, property.neighborhood),
@@ -113,6 +105,18 @@ function getMapHref(property: Property) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     query || `${property.city}, ${property.state}`
   )}`;
+}
+
+function getMessageLandlordHref(property: Property) {
+  const params = new URLSearchParams();
+
+  params.set("propertyId", property.id);
+
+  if (property.landlord_id) {
+    params.set("landlordId", property.landlord_id);
+  }
+
+  return `/dashboard/tenant/messages?${params.toString()}`;
 }
 
 export default async function ListingDetailPage({
@@ -181,8 +185,10 @@ export default async function ListingDetailPage({
   const mainPhoto = photos[0];
   const locationLine = getLocationLine(property);
   const neighborhood = cleanNeighborhood(property.city, property.neighborhood);
-  const hasContactInfo =
-    landlordProfile?.email || landlordProfile?.phone || landlordProfile?.website;
+  const landlordDisplayName =
+    landlordProfile?.company_name ||
+    landlordProfile?.full_name ||
+    "Keylo Landlord";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -358,6 +364,15 @@ export default async function ListingDetailPage({
                   Apply Now
                 </Link>
 
+                {property.landlord_id && (
+                  <Link
+                    href={getMessageLandlordHref(property)}
+                    className="block rounded-full border border-white/30 px-6 py-4 text-center font-black text-white transition hover:bg-white hover:text-slate-950"
+                  >
+                    Message Landlord
+                  </Link>
+                )}
+
                 <SaveListingButton propertyId={property.id} />
               </div>
             </div>
@@ -368,43 +383,27 @@ export default async function ListingDetailPage({
               </p>
 
               <h3 className="mt-2 text-xl font-black">
-                {landlordProfile?.company_name ||
-                  landlordProfile?.full_name ||
-                  "Keylo Landlord"}
+                {landlordDisplayName}
               </h3>
 
-              {landlordProfile?.bio && (
+              {landlordProfile?.bio ? (
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {landlordProfile.bio}
                 </p>
+              ) : (
+                <p className="mt-3 text-sm font-bold leading-6 text-slate-600">
+                  This landlord uses Keylo to manage rental applications,
+                  communication, and next steps.
+                </p>
               )}
 
-              {hasContactInfo && (
-                <div className="mt-4 space-y-2 text-sm font-bold text-slate-600">
-                  {landlordProfile?.email && (
-                    <p className="break-words">
-                      Email: {landlordProfile.email}
-                    </p>
-                  )}
-
-                  {landlordProfile?.phone && (
-                    <p>Phone: {landlordProfile.phone}</p>
-                  )}
-
-                  {landlordProfile?.website && (
-                    <p className="break-words">
-                      Website:{" "}
-                      <a
-                        href={getWebsiteHref(landlordProfile.website)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline decoration-2 underline-offset-4"
-                      >
-                        {landlordProfile.website}
-                      </a>
-                    </p>
-                  )}
-                </div>
+              {property.landlord_id && (
+                <Link
+                  href={getMessageLandlordHref(property)}
+                  className="mt-4 block rounded-full bg-white px-5 py-3 text-center text-sm font-black text-slate-950 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  Ask a question
+                </Link>
               )}
             </div>
 
@@ -420,14 +419,23 @@ export default async function ListingDetailPage({
               </div>
             </div>
 
-            <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-5">
-              <h3 className="font-black">Need help?</h3>
+            {property.landlord_id && (
+              <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-5">
+                <h3 className="font-black">Questions before applying?</h3>
 
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
-                Have a question before applying? Use the listing details and
-                landlord information above to confirm anything important first.
-              </p>
-            </div>
+                <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
+                  Message the landlord about availability, showings, lease
+                  terms, or anything you want to confirm.
+                </p>
+
+                <Link
+                  href={getMessageLandlordHref(property)}
+                  className="mt-4 block rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
+                >
+                  Message Landlord
+                </Link>
+              </div>
+            )}
           </aside>
         </div>
       </div>
