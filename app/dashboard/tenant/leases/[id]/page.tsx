@@ -310,13 +310,20 @@ export default function TenantLeasePage() {
           )}
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Link
-              href={`/dashboard/tenant/leases/${lease.id}/print`}
-              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-            >
-              Download / Print PDF
-            </Link>
-          </div>
+  <Link
+    href={`/dashboard/tenant/leases/${lease.id}/renewal`}
+    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+  >
+    Renewal / Move-Out Plan
+  </Link>
+
+  <Link
+    href={`/dashboard/tenant/leases/${lease.id}/print`}
+    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+  >
+    Download / Print PDF
+  </Link>
+</div>
 
           <section className="mt-8">
             <h2 className="text-2xl font-black">Lease Summary</h2>

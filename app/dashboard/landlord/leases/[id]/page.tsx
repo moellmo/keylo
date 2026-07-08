@@ -603,19 +603,26 @@ export default function LandlordLeaseDetailPage() {
           )}
 
           <div className="mt-8 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
-            
-            <Link
-  href={`/dashboard/landlord/leases/${lease.id}/payments`}
-  className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
->
-  Payments
-</Link>
-            <Link
-              href={`/dashboard/landlord/leases/${lease.id}/print`}
-              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-            >
-              Download / Print PDF
-            </Link>
+  <Link
+    href={`/dashboard/landlord/leases/${lease.id}/payments`}
+    className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
+  >
+    Payments
+  </Link>
+
+  <Link
+    href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+  >
+    Renewal / Move-Out Plan
+  </Link>
+
+  <Link
+    href={`/dashboard/landlord/leases/${lease.id}/print`}
+    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+  >
+    Download / Print PDF
+  </Link>
 
             <Link
               href="/dashboard/landlord"

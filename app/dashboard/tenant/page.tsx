@@ -369,6 +369,13 @@ property_id,
             </Link>
 
             <Link
+  href="/dashboard/notifications"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+>
+  Notifications
+</Link>
+
+            <Link
               href="/dashboard/tenant/maintenance"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
             >
@@ -453,7 +460,7 @@ property_id,
                 button="View Payments"
               />
             )}
-            
+
 {screeningRequests.length > 0 && (
   <ActionCard
     title="Approve screening"

@@ -377,6 +377,13 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
               Lease Builder
             </Link>
 
+            <Link
+  href="/dashboard/notifications"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Notifications
+</Link>
+
           </div>
         </div>
 
