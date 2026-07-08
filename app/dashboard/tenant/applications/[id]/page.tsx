@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { createNotification } from "@/lib/createNotification";
+import { createCompanyNotifications } from "@/lib/createCompanyNotifications";
 
 type ScreeningStatus =
   | "not_requested"
@@ -22,6 +22,7 @@ type ScreeningRequest = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   screening_type:
     | "credit"
     | "background"
@@ -51,6 +52,9 @@ type ApplicationDetail = {
   id: string;
   property_id: string;
   tenant_id: string | null;
+  landlord_id: string | null;
+  landlord_company_id: string | null;
+
   first_name: string;
   last_name: string;
   email: string;
@@ -66,15 +70,35 @@ type ApplicationDetail = {
   screening_status: ScreeningStatus | null;
   latest_screening_request_id: string | null;
 
-  properties: {
-    id: string;
-    title: string;
-    monthly_rent: number;
-    city: string;
-    state: string;
-    landlord_id: string | null;
-  } | null;
+  properties:
+    | {
+        id: string;
+        title: string;
+        monthly_rent: number;
+        city: string;
+        state: string;
+        landlord_id: string | null;
+        landlord_company_id: string | null;
+      }
+    | {
+        id: string;
+        title: string;
+        monthly_rent: number;
+        city: string;
+        state: string;
+        landlord_id: string | null;
+        landlord_company_id: string | null;
+      }[]
+    | null;
 };
+
+function getProperty(application: ApplicationDetail) {
+  if (Array.isArray(application.properties)) {
+    return application.properties[0] || null;
+  }
+
+  return application.properties;
+}
 
 function formatStatus(status: string) {
   if (status === "submitted") return "Submitted";
@@ -195,7 +219,8 @@ export default function TenantApplicationDetailPage() {
           monthly_rent,
           city,
           state,
-          landlord_id
+          landlord_id,
+          landlord_company_id
         )
       `
       )
@@ -208,7 +233,7 @@ export default function TenantApplicationDetailPage() {
       return;
     }
 
-    const app = data as ApplicationDetail;
+    const app = data as unknown as ApplicationDetail;
 
     const isAdmin = profile?.role === "admin";
     const isOwner = app.tenant_id === user.id;
@@ -245,12 +270,14 @@ export default function TenantApplicationDetailPage() {
   async function startConversation() {
     if (!application) return;
 
+    const property = getProperty(application);
+
     if (!application.tenant_id) {
       setMessage("Could not find the tenant for this application.");
       return;
     }
 
-    if (!application.properties?.landlord_id) {
+    if (!property?.landlord_id) {
       setMessage("Could not find the landlord for this application.");
       return;
     }
@@ -264,7 +291,7 @@ export default function TenantApplicationDetailPage() {
       .select("id")
       .eq("application_id", application.id)
       .eq("tenant_id", application.tenant_id)
-      .eq("landlord_id", application.properties.landlord_id)
+      .eq("landlord_id", property.landlord_id)
       .maybeSingle();
 
     if (existingError) {
@@ -284,9 +311,9 @@ export default function TenantApplicationDetailPage() {
         application_id: application.id,
         property_id: application.property_id,
         tenant_id: application.tenant_id,
-        landlord_id: application.properties.landlord_id,
-        subject: application.properties.title
-          ? `Application for ${application.properties.title}`
+        landlord_id: property.landlord_id,
+        subject: property.title
+          ? `Application for ${property.title}`
           : "Rental application conversation",
         last_message: null,
         last_message_at: null,
@@ -305,6 +332,8 @@ export default function TenantApplicationDetailPage() {
 
   async function approveScreening() {
     if (!application || !screeningRequest) return;
+
+    const property = getProperty(application);
 
     const confirmed = window.confirm(
       "Approve this screening request? This is currently a placeholder consent flow. Later this can connect to TransUnion or another provider."
@@ -351,16 +380,19 @@ export default function TenantApplicationDetailPage() {
       return;
     }
 
-    if (application.properties?.landlord_id) {
-      await createNotification({
-        userId: application.properties.landlord_id,
-        title: "Screening approved",
-        message: `${application.first_name} ${application.last_name} approved the screening request.`,
-        type: "screening_update",
-        targetUrl: `/dashboard/landlord/applications/${application.id}`,
-        dedupe: false,
-      });
-    }
+    await createCompanyNotifications({
+      companyId:
+        application.landlord_company_id ||
+        property?.landlord_company_id ||
+        screeningRequest.landlord_company_id,
+      fallbackUserId: application.landlord_id || property?.landlord_id,
+      roles: ["owner", "admin", "manager"],
+      title: "Screening approved",
+      message: `${application.first_name} ${application.last_name} approved the screening request.`,
+      type: "screening_update",
+      targetUrl: `/dashboard/landlord/applications/${application.id}`,
+      dedupe: false,
+    });
 
     setScreeningRequest({
       ...screeningRequest,
@@ -382,6 +414,8 @@ export default function TenantApplicationDetailPage() {
 
   async function declineScreening() {
     if (!application || !screeningRequest) return;
+
+    const property = getProperty(application);
 
     const confirmed = window.confirm("Decline this screening request?");
     if (!confirmed) return;
@@ -421,16 +455,19 @@ export default function TenantApplicationDetailPage() {
       return;
     }
 
-    if (application.properties?.landlord_id) {
-      await createNotification({
-        userId: application.properties.landlord_id,
-        title: "Screening declined",
-        message: `${application.first_name} ${application.last_name} declined the screening request.`,
-        type: "screening_update",
-        targetUrl: `/dashboard/landlord/applications/${application.id}`,
-        dedupe: false,
-      });
-    }
+    await createCompanyNotifications({
+      companyId:
+        application.landlord_company_id ||
+        property?.landlord_company_id ||
+        screeningRequest.landlord_company_id,
+      fallbackUserId: application.landlord_id || property?.landlord_id,
+      roles: ["owner", "admin", "manager"],
+      title: "Screening declined",
+      message: `${application.first_name} ${application.last_name} declined the screening request.`,
+      type: "screening_update",
+      targetUrl: `/dashboard/landlord/applications/${application.id}`,
+      dedupe: false,
+    });
 
     setScreeningRequest({
       ...screeningRequest,
@@ -451,9 +488,11 @@ export default function TenantApplicationDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading application...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading application...
+          </h1>
         </div>
       </main>
     );
@@ -461,7 +500,7 @@ export default function TenantApplicationDetailPage() {
 
   if (!application) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Application unavailable</h1>
 
@@ -478,13 +517,15 @@ export default function TenantApplicationDetailPage() {
     );
   }
 
+  const property = getProperty(application);
+
   const canRespondToScreening =
     screeningRequest?.status === "requested" ||
     screeningRequest?.status === "in_progress";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/tenant"
           className="text-sm font-bold text-slate-600"
@@ -492,7 +533,7 @@ export default function TenantApplicationDetailPage() {
           ← Back to Tenant Dashboard
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
@@ -500,19 +541,20 @@ export default function TenantApplicationDetailPage() {
               </p>
 
               <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
-                {application.properties?.title || "Rental Listing"}
+                {property?.title || "Rental Listing"}
               </h1>
 
               <p className="mt-3 text-lg font-bold text-slate-600">
-                {application.properties
-                  ? `${application.properties.city}, ${
-                      application.properties.state
-                    } · $${application.properties.monthly_rent.toLocaleString()}/mo`
+                {property
+                  ? `${property.city}, ${
+                      property.state
+                    } · $${property.monthly_rent.toLocaleString()}/mo`
                   : "Listing details unavailable"}
               </p>
 
               <p className="mt-2 text-sm font-bold text-slate-500">
-                Submitted {new Date(application.created_at).toLocaleDateString()}
+                Submitted{" "}
+                {new Date(application.created_at).toLocaleDateString()}
               </p>
             </div>
 
@@ -550,7 +592,7 @@ export default function TenantApplicationDetailPage() {
             {statusMessage(application.status)}
           </div>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">

@@ -10,6 +10,7 @@ type MaintenanceRequest = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   title: string;
   description: string;
   priority: "low" | "normal" | "urgent" | "emergency";

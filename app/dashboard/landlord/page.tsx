@@ -51,6 +51,31 @@ type MaintenanceRequest = {
   created_at: string;
 };
 
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  landlord_companies:
+    | {
+        id: string;
+        name: string;
+      }
+    | {
+        id: string;
+        name: string;
+      }[]
+    | null;
+};
+
+function getCompanyFromMembership(membership: CompanyMembership | null) {
+  if (!membership) return null;
+
+  if (Array.isArray(membership.landlord_companies)) {
+    return membership.landlord_companies[0] || null;
+  }
+
+  return membership.landlord_companies;
+}
+
 function formatMoneyFromCents(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -82,6 +107,9 @@ export default function LandlordDashboardPage() {
   const [maintenanceRequests, setMaintenanceRequests] = useState<
     MaintenanceRequest[]
   >([]);
+  const [companyName, setCompanyName] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
+  const [hasCompany, setHasCompany] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -116,7 +144,52 @@ export default function LandlordDashboardPage() {
 
       setLoggedIn(true);
 
-      const { data, error } = await supabase
+      let companyId: string | null = null;
+
+      if (profile?.role === "landlord") {
+        const { data: membershipRows, error: membershipError } = await supabase
+          .from("landlord_company_members")
+          .select(
+            `
+            company_id,
+            role,
+            landlord_companies (
+              id,
+              name
+            )
+          `
+          )
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("created_at", { ascending: true })
+          .limit(1);
+
+        if (membershipError) {
+          setErrorMessage(membershipError.message);
+          setLoading(false);
+          return;
+        }
+
+        const firstMembership =
+          ((membershipRows || [])[0] as unknown as
+            | CompanyMembership
+            | undefined) || null;
+
+        const company = getCompanyFromMembership(firstMembership);
+
+        if (firstMembership && company) {
+          companyId = company.id;
+          setCompanyName(company.name);
+          setCompanyRole(firstMembership.role);
+          setHasCompany(true);
+        } else {
+          setCompanyName("");
+          setCompanyRole("");
+          setHasCompany(false);
+        }
+      }
+
+      let propertiesQuery = supabase
         .from("properties")
         .select(
           `
@@ -135,8 +208,17 @@ export default function LandlordDashboardPage() {
           )
         `
         )
-        .eq("landlord_id", user.id)
         .order("created_at", { ascending: false });
+
+      if (companyId) {
+        propertiesQuery = propertiesQuery.or(
+          `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
+        );
+      } else {
+        propertiesQuery = propertiesQuery.eq("landlord_id", user.id);
+      }
+
+      const { data, error } = await propertiesQuery;
 
       if (error) {
         setErrorMessage(error.message);
@@ -144,7 +226,7 @@ export default function LandlordDashboardPage() {
         return;
       }
 
-      const { data: leaseRows, error: leasesError } = await supabase
+      let leasesQuery = supabase
         .from("leases")
         .select(
           `
@@ -161,8 +243,17 @@ export default function LandlordDashboardPage() {
           created_at
         `
         )
-        .eq("landlord_id", user.id)
         .order("created_at", { ascending: false });
+
+      if (companyId) {
+        leasesQuery = leasesQuery.or(
+          `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
+        );
+      } else {
+        leasesQuery = leasesQuery.eq("landlord_id", user.id);
+      }
+
+      const { data: leaseRows, error: leasesError } = await leasesQuery;
 
       if (leasesError) {
         setErrorMessage(leasesError.message);
@@ -170,11 +261,20 @@ export default function LandlordDashboardPage() {
         return;
       }
 
-      const { data: chargeRows, error: chargesError } = await supabase
+      let chargesQuery = supabase
         .from("rent_charges")
         .select("id, amount_cents, status, due_date")
-        .eq("landlord_id", user.id)
         .order("due_date", { ascending: true });
+
+      if (companyId) {
+        chargesQuery = chargesQuery.or(
+          `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
+        );
+      } else {
+        chargesQuery = chargesQuery.eq("landlord_id", user.id);
+      }
+
+      const { data: chargeRows, error: chargesError } = await chargesQuery;
 
       if (chargesError) {
         setErrorMessage(chargesError.message);
@@ -182,11 +282,21 @@ export default function LandlordDashboardPage() {
         return;
       }
 
-      const { data: maintenanceRows, error: maintenanceError } = await supabase
+      let maintenanceQuery = supabase
         .from("maintenance_requests")
         .select("id, title, status, priority, created_at")
-        .eq("landlord_id", user.id)
         .order("created_at", { ascending: false });
+
+      if (companyId) {
+        maintenanceQuery = maintenanceQuery.or(
+          `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
+        );
+      } else {
+        maintenanceQuery = maintenanceQuery.eq("landlord_id", user.id);
+      }
+
+      const { data: maintenanceRows, error: maintenanceError } =
+        await maintenanceQuery;
 
       if (maintenanceError) {
         setErrorMessage(maintenanceError.message);
@@ -375,9 +485,21 @@ export default function LandlordDashboardPage() {
               </h1>
 
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-                Manage listings, applications, leases, rent payments, and
-                maintenance in one place.
+                Manage company listings, applications, leases, rent payments,
+                and maintenance in one place.
               </p>
+
+              {hasCompany && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    Company: {companyName}
+                  </span>
+
+                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
+                    Role: {companyRole}
+                  </span>
+                </div>
+              )}
             </div>
 
             <Link
@@ -389,6 +511,8 @@ export default function LandlordDashboardPage() {
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <QuickLink href="/dashboard/landlord/company" label="Company" />
+            <QuickLink href="/dashboard/landlord/team" label="Team" />
             <QuickLink href="/dashboard/landlord/payments" label="Payments" />
             <QuickLink
               href="/dashboard/landlord/maintenance"
@@ -405,6 +529,27 @@ export default function LandlordDashboardPage() {
             />
           </div>
         </div>
+
+        {!hasCompany && (
+          <div className="mt-6 rounded-[2rem] bg-blue-50 p-5 shadow-sm ring-1 ring-blue-200 sm:p-6">
+            <h2 className="text-2xl font-black text-blue-950">
+              Create your landlord company
+            </h2>
+
+            <p className="mt-2 max-w-3xl font-bold leading-7 text-blue-800">
+              Company setup lets you invite team members and manage listings,
+              applications, payments, leases, and maintenance under one landlord
+              organization.
+            </p>
+
+            <Link
+              href="/dashboard/landlord/company"
+              className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+            >
+              Create Company
+            </Link>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="mt-6 rounded-2xl bg-white px-5 py-4 font-bold text-red-700 shadow-sm ring-1 ring-red-200">
@@ -673,7 +818,7 @@ export default function LandlordDashboardPage() {
           className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
         >
           <SectionHeader
-            title="Your Listings"
+            title={hasCompany ? "Company Listings" : "Your Listings"}
             href="/dashboard/landlord/properties/new"
             hrefLabel="Post New"
           />

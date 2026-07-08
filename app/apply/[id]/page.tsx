@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { createNotification } from "@/lib/createNotification";
+import { createCompanyNotifications } from "@/lib/createCompanyNotifications";
 
 type Property = {
   id: string;
@@ -16,6 +16,7 @@ type Property = {
   bathrooms: string | null;
   status: string;
   landlord_id: string;
+  landlord_company_id: string | null;
 };
 
 type BasicProfile = {
@@ -120,7 +121,7 @@ export default function ApplyPage() {
       const { data: propertyRow, error: propertyError } = await supabase
         .from("properties")
         .select(
-  "id, title, monthly_rent, city, state, bedrooms, bathrooms, status, landlord_id"
+  "id, title, monthly_rent, city, state, bedrooms, bathrooms, status, landlord_id, landlord_company_id"
 )
         .eq("id", propertyId)
         .eq("status", "published")
@@ -226,9 +227,11 @@ export default function ApplyPage() {
 
    const { data: newApplication, error } = await supabase
   .from("applications")
-  .insert({
-    property_id: property.id,
-    tenant_id: userId,
+.insert({
+  property_id: property.id,
+  tenant_id: userId,
+  landlord_id: property.landlord_id,
+  landlord_company_id: property.landlord_company_id,
 
       first_name: tenantProfile.legal_first_name,
       last_name: tenantProfile.legal_last_name,
@@ -286,8 +289,10 @@ if (!newApplication?.id) {
   return;
 }
 
-await createNotification({
-  userId: property.landlord_id,
+await createCompanyNotifications({
+  companyId: property.landlord_company_id,
+  fallbackUserId: property.landlord_id,
+  roles: ["owner", "admin", "manager"],
   title: "New application received",
   message: `${
     tenantProfile.legal_first_name || "A tenant"

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { createNotification } from "@/lib/createNotification";
+import { createCompanyNotifications } from "@/lib/createCompanyNotifications";
 
 type MaintenanceRequest = {
   id: string;
@@ -12,6 +12,7 @@ type MaintenanceRequest = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   title: string;
   description: string;
   priority: "low" | "normal" | "urgent" | "emergency";
@@ -313,14 +314,16 @@ export default function TenantMaintenanceDetailPage() {
         }
       }
 
-      await createNotification({
-        userId: request.landlord_id,
-        title: "Maintenance photo added",
-        message: `A tenant added photos to "${request.title}".`,
-        type: "maintenance_update",
-        targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
-        dedupe: false,
-      });
+      await createCompanyNotifications({
+  companyId: request.landlord_company_id,
+  fallbackUserId: request.landlord_id,
+  roles: ["owner", "admin", "manager", "maintenance"],
+  title: "Maintenance photo added",
+  message: `A tenant added photos to "${request.title}".`,
+  type: "maintenance_update",
+  targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
+  dedupe: false,
+});
 
       setSelectedFiles([]);
       await loadRequest();
@@ -371,14 +374,16 @@ export default function TenantMaintenanceDetailPage() {
       return;
     }
 
-    await createNotification({
-      userId: request.landlord_id,
-      title: "Tenant maintenance update",
-      message: `A tenant added an update to "${request.title}".`,
-      type: "maintenance_update",
-      targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
-      dedupe: false,
-    });
+    await createCompanyNotifications({
+  companyId: request.landlord_company_id,
+  fallbackUserId: request.landlord_id,
+  roles: ["owner", "admin", "manager", "maintenance"],
+  title: "Tenant maintenance update",
+  message: `A tenant added an update to "${request.title}".`,
+  type: "maintenance_update",
+  targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
+  dedupe: false,
+});
 
     setNote("");
     await loadRequest();
@@ -437,14 +442,16 @@ export default function TenantMaintenanceDetailPage() {
       return;
     }
 
-    await createNotification({
-      userId: request.landlord_id,
-      title: "Maintenance request cancelled",
-      message: `A tenant cancelled "${request.title}".`,
-      type: "maintenance_update",
-      targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
-      dedupe: false,
-    });
+    await createCompanyNotifications({
+  companyId: request.landlord_company_id,
+  fallbackUserId: request.landlord_id,
+  roles: ["owner", "admin", "manager", "maintenance"],
+  title: "Maintenance request cancelled",
+  message: `A tenant cancelled "${request.title}".`,
+  type: "maintenance_update",
+  targetUrl: `/dashboard/landlord/maintenance/${request.id}`,
+  dedupe: false,
+});
 
     await loadRequest();
     showSuccess("Request cancelled.");

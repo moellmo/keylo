@@ -19,6 +19,7 @@ type Lease = {
   property_id: string | null;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   lease_status: string;
   renewal_status: string | null;
   renewal_parent_lease_id: string | null;
@@ -40,6 +41,7 @@ type Lease = {
 type RenewalRequest = {
   id: string;
   lease_id: string;
+  landlord_company_id: string | null;
   request_type:
     | "tenant_requests_renewal"
     | "tenant_plans_to_move_out"
@@ -56,6 +58,15 @@ type RenewalRequest = {
   renewal_lease_id: string | null;
   created_at: string;
 };
+
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
+function canManageRenewals(role: string) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
 
 function formatRenewalType(type: string) {
   if (type === "tenant_requests_renewal") return "Tenant Wants to Renew";
@@ -102,6 +113,7 @@ export default function LandlordLeaseRenewalPage() {
   const [proposedEndDate, setProposedEndDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [creatingLeaseId, setCreatingLeaseId] = useState<string | null>(null);
+  const [companyRole, setCompanyRole] = useState("");
 
   useEffect(() => {
     loadPage();
@@ -124,6 +136,12 @@ export default function LandlordLeaseRenewalPage() {
       return;
     }
 
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
     const { data: leaseRow, error: leaseError } = await supabase
       .from("leases")
       .select("*")
@@ -139,7 +157,36 @@ export default function LandlordLeaseRenewalPage() {
 
     const currentLease = leaseRow as Lease;
 
-    if (currentLease.landlord_id !== user.id) {
+    const isAdmin = profile?.role === "admin";
+    const isOriginalLandlord = currentLease.landlord_id === user.id;
+
+    let isCompanyManager = false;
+    let currentCompanyRole = "";
+
+    if (!isAdmin && !isOriginalLandlord && currentLease.landlord_company_id) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", currentLease.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        setMessage(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyManager =
+        !!companyMembership && canManageRenewals(companyMembership.role);
+    }
+
+    if (!isAdmin && !isOriginalLandlord && !isCompanyManager) {
       setMessage("You do not have permission to view this renewal page.");
       setAllowed(false);
       setLoading(false);
@@ -152,6 +199,7 @@ export default function LandlordLeaseRenewalPage() {
         `
         id,
         lease_id,
+        landlord_company_id,
         request_type,
         status,
         tenant_message,
@@ -175,6 +223,7 @@ export default function LandlordLeaseRenewalPage() {
     }
 
     setLease(currentLease);
+    setCompanyRole(currentCompanyRole);
     setRenewalRequests((requestRows || []) as RenewalRequest[]);
     setAllowed(true);
     setLoading(false);
@@ -201,6 +250,8 @@ export default function LandlordLeaseRenewalPage() {
     setMessage("");
     setSuccessMessage("");
 
+    const now = new Date().toISOString();
+
     const nextRenewalStatus =
       requestType === "landlord_asks_plan"
         ? "plan_requested"
@@ -220,6 +271,7 @@ export default function LandlordLeaseRenewalPage() {
       property_id: lease.property_id,
       tenant_id: lease.tenant_id,
       landlord_id: lease.landlord_id,
+      landlord_company_id: lease.landlord_company_id,
       request_type: requestType,
       status: nextRequestStatus,
       current_lease_end_date: lease.lease_end_date,
@@ -246,11 +298,8 @@ export default function LandlordLeaseRenewalPage() {
           : requestType === "landlord_offers_renewal"
             ? "We are offering a lease renewal."
             : "The landlord is not offering a renewal at this time."),
-      landlord_responded_at: new Date().toISOString(),
-      renewal_sent_at:
-        requestType === "landlord_offers_renewal"
-          ? new Date().toISOString()
-          : null,
+      landlord_responded_at: now,
+      renewal_sent_at: requestType === "landlord_offers_renewal" ? now : null,
     });
 
     if (error) {
@@ -259,18 +308,25 @@ export default function LandlordLeaseRenewalPage() {
       return;
     }
 
+    const leaseUpdatePayload: {
+      renewal_status: string;
+      updated_at: string;
+      renewal_notice_sent_at?: string;
+    } = {
+      renewal_status: nextRenewalStatus,
+      updated_at: now,
+    };
+
+    if (
+      requestType === "landlord_asks_plan" ||
+      lease.renewal_status === "not_started"
+    ) {
+      leaseUpdatePayload.renewal_notice_sent_at = now;
+    }
+
     const { error: leaseError } = await supabase
       .from("leases")
-      .update({
-        renewal_status: nextRenewalStatus,
-        renewal_notice_sent_at:
-          requestType === "landlord_asks_plan"
-            ? new Date().toISOString()
-            : lease.renewal_status === "not_started"
-              ? new Date().toISOString()
-              : undefined,
-        updated_at: new Date().toISOString(),
-      })
+      .update(leaseUpdatePayload)
       .eq("id", lease.id);
 
     if (leaseError) {
@@ -336,9 +392,7 @@ export default function LandlordLeaseRenewalPage() {
       !request.proposed_lease_start_date ||
       !request.proposed_lease_end_date
     ) {
-      setMessage(
-        "This renewal offer is missing rent, start date, or end date."
-      );
+      setMessage("This renewal offer is missing rent, start date, or end date.");
       return;
     }
 
@@ -359,6 +413,7 @@ export default function LandlordLeaseRenewalPage() {
       property_id: lease.property_id,
       tenant_id: lease.tenant_id,
       landlord_id: lease.landlord_id,
+      landlord_company_id: lease.landlord_company_id,
 
       lease_status: "sent_to_tenant",
 
@@ -482,9 +537,11 @@ export default function LandlordLeaseRenewalPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading renewal page...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading renewal page...
+          </h1>
         </div>
       </main>
     );
@@ -492,7 +549,7 @@ export default function LandlordLeaseRenewalPage() {
 
   if (!allowed || !lease) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Renewal unavailable</h1>
           <p className="mt-3 text-slate-600">{message}</p>
@@ -510,7 +567,7 @@ export default function LandlordLeaseRenewalPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href={`/dashboard/landlord/leases/${lease.id}`}
           className="text-sm font-bold text-slate-600"
@@ -518,7 +575,7 @@ export default function LandlordLeaseRenewalPage() {
           ← Back to Lease
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="border-b border-slate-200 pb-6">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
               Lease Renewal
@@ -528,10 +585,16 @@ export default function LandlordLeaseRenewalPage() {
               Renewal / Move-Out Planning
             </h1>
 
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
               Ask the tenant for their plan, offer renewal terms, or create the
               updated renewal lease for e-signature.
             </p>
+
+            {companyRole && (
+              <p className="mt-4 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                Company role: {companyRole}
+              </p>
+            )}
           </div>
 
           {message && (
@@ -563,12 +626,12 @@ export default function LandlordLeaseRenewalPage() {
             />
 
             <InfoCard
-  label="Renewal Status"
-  value={formatRenewalStatus(lease.renewal_status)}
-/>
+              label="Renewal Status"
+              value={formatRenewalStatus(lease.renewal_status)}
+            />
           </section>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Send Renewal Update</h2>
 
             <label className="mt-5 block">
@@ -667,7 +730,7 @@ export default function LandlordLeaseRenewalPage() {
             </div>
           </section>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Renewal History</h2>
 
             {renewalRequests.length > 0 ? (

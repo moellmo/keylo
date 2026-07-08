@@ -6,12 +6,21 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
+type LeaseForMaintenance = {
+  id: string;
+  property_address: string | null;
+  landlord_name: string | null;
+  tenant_name: string | null;
+  lease_status: string;
+};
+
 type MaintenanceRequest = {
   id: string;
   lease_id: string;
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   title: string;
   description: string;
   priority: "low" | "normal" | "urgent" | "emergency";
@@ -21,22 +30,7 @@ type MaintenanceRequest = {
   closed_at: string | null;
   created_at: string;
   updated_at: string;
-  leases:
-    | {
-        id: string;
-        property_address: string | null;
-        landlord_name: string | null;
-        tenant_name: string | null;
-        lease_status: string;
-      }
-    | {
-        id: string;
-        property_address: string | null;
-        landlord_name: string | null;
-        tenant_name: string | null;
-        lease_status: string;
-      }[]
-    | null;
+  leases: LeaseForMaintenance | LeaseForMaintenance[] | null;
 };
 
 type MaintenancePhoto = {
@@ -67,6 +61,11 @@ type MaintenanceUpdate = {
   created_at: string;
 };
 
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
 type PhotoWithUrl = MaintenancePhoto & {
   signedUrl: string | null;
 };
@@ -77,6 +76,15 @@ function getLease(request: MaintenanceRequest) {
   }
 
   return request.leases;
+}
+
+function canManageMaintenance(role: string) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "maintenance"
+  );
 }
 
 function formatStatus(status: string) {
@@ -120,6 +128,7 @@ export default function LandlordMaintenanceDetailPage() {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [companyRole, setCompanyRole] = useState("");
 
   useEffect(() => {
     loadRequest();
@@ -164,7 +173,7 @@ export default function LandlordMaintenanceDetailPage() {
       return;
     }
 
-    let requestQuery = supabase
+    const { data: requestRow, error: requestError } = await supabase
       .from("maintenance_requests")
       .select(
         `
@@ -178,25 +187,57 @@ export default function LandlordMaintenanceDetailPage() {
         )
       `
       )
-      .eq("id", requestId);
+      .eq("id", requestId)
+      .single();
 
-    if (profile?.role !== "admin") {
-      requestQuery = requestQuery.eq("landlord_id", user.id);
-    }
-
-    const { data: requestRow, error: requestError } =
-      await requestQuery.single();
-
-    if (requestError) {
-      showError(requestError.message);
+    if (requestError || !requestRow) {
+      showError(requestError?.message || "Maintenance request not found.");
       setAllowed(false);
       setLoading(false);
       return;
     }
 
     const typedRequest = requestRow as unknown as MaintenanceRequest;
+
+    const isAdmin = profile?.role === "admin";
+    const isOriginalLandlord = typedRequest.landlord_id === user.id;
+
+    let isCompanyMaintenanceUser = false;
+    let currentCompanyRole = "";
+
+    if (!isAdmin && !isOriginalLandlord && typedRequest.landlord_company_id) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", typedRequest.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        showError(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyMaintenanceUser =
+        !!companyMembership && canManageMaintenance(companyMembership.role);
+    }
+
+    if (!isAdmin && !isOriginalLandlord && !isCompanyMaintenanceUser) {
+      showError("You do not have permission to view this request.");
+      setAllowed(false);
+      setLoading(false);
+      return;
+    }
+
     setRequest(typedRequest);
     setNote(typedRequest.landlord_notes || "");
+    setCompanyRole(currentCompanyRole);
 
     const { data: photoRows, error: photosError } = await supabase
       .from("maintenance_request_photos")
@@ -416,9 +457,7 @@ export default function LandlordMaintenanceDetailPage() {
     setSaving(false);
   }
 
-  async function updateStatus(
-    newStatus: MaintenanceRequest["status"]
-  ) {
+  async function updateStatus(newStatus: MaintenanceRequest["status"]) {
     if (!request) return;
 
     const confirmed = window.confirm(
@@ -507,9 +546,11 @@ export default function LandlordMaintenanceDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading request...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading request...
+          </h1>
         </div>
       </main>
     );
@@ -517,7 +558,7 @@ export default function LandlordMaintenanceDetailPage() {
 
   if (!allowed || !request) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Request unavailable</h1>
 
@@ -535,12 +576,11 @@ export default function LandlordMaintenanceDetailPage() {
   }
 
   const lease = getLease(request);
-  const isActive =
-    request.status === "open" || request.status === "in_progress";
+  const isActive = request.status === "open" || request.status === "in_progress";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/landlord/maintenance"
           className="text-sm font-bold text-slate-600"
@@ -549,7 +589,7 @@ export default function LandlordMaintenanceDetailPage() {
         </Link>
 
         <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_380px]">
-          <section className="rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+          <section className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
             <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
@@ -569,6 +609,12 @@ export default function LandlordMaintenanceDetailPage() {
                 {lease?.property_address && (
                   <p className="mt-2 font-bold text-slate-500">
                     {lease.property_address}
+                  </p>
+                )}
+
+                {companyRole && (
+                  <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                    Company role: {companyRole}
                   </p>
                 )}
               </div>
@@ -606,7 +652,7 @@ export default function LandlordMaintenanceDetailPage() {
               </div>
             )}
 
-            <div className="mt-6 rounded-3xl bg-[#f7f4ef] p-6">
+            <div className="mt-6 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
               <h2 className="text-xl font-black">Issue Description</h2>
               <p className="mt-3 whitespace-pre-wrap leading-7 text-slate-700">
                 {request.description}
@@ -659,7 +705,7 @@ export default function LandlordMaintenanceDetailPage() {
               )}
             </section>
 
-            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
               <h2 className="text-2xl font-black">Add Photos</h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -697,7 +743,7 @@ export default function LandlordMaintenanceDetailPage() {
               </button>
             </section>
 
-            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
               <h2 className="text-2xl font-black">Landlord Note</h2>
 
               <textarea

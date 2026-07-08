@@ -21,6 +21,7 @@ type Lease = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   lease_status: string;
   renewal_status: string | null;
   renewal_parent_lease_id: string | null;
@@ -47,6 +48,15 @@ type Lease = {
 type RatingRow = {
   id: string;
 };
+
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
+function canManageCompanyLease(role: string) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
 
 function formatStatus(status: string) {
   if (status === "draft") return "Draft";
@@ -86,6 +96,8 @@ export default function LandlordLeaseDetailPage() {
   const [signatureName, setSignatureName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [esignFeePaid, setEsignFeePaid] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
 
   useEffect(() => {
     loadLease();
@@ -103,6 +115,7 @@ export default function LandlordLeaseDetailPage() {
 
   async function loadLease() {
     setLoading(true);
+    setMessage("");
 
     const {
       data: { user },
@@ -114,6 +127,8 @@ export default function LandlordLeaseDetailPage() {
       setLoading(false);
       return;
     }
+
+    setCurrentUserId(user.id);
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -137,9 +152,35 @@ export default function LandlordLeaseDetailPage() {
     const leaseRow = data as Lease;
 
     const isAdmin = profile?.role === "admin";
-    const isLandlord = leaseRow.landlord_id === user.id;
+    const isOriginalLandlord = leaseRow.landlord_id === user.id;
 
-    if (!isAdmin && !isLandlord) {
+    let isCompanyManager = false;
+    let currentCompanyRole = "";
+
+    if (!isAdmin && !isOriginalLandlord && leaseRow.landlord_company_id) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", leaseRow.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        showError(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyManager =
+        !!companyMembership && canManageCompanyLease(companyMembership.role);
+    }
+
+    if (!isAdmin && !isOriginalLandlord && !isCompanyManager) {
       showError("You do not have permission to view this lease.");
       setAllowed(false);
       setLoading(false);
@@ -157,6 +198,7 @@ export default function LandlordLeaseDetailPage() {
     setLease(leaseRow);
     setExistingRating((ratingRow as RatingRow | null) || null);
     setSignatureName(leaseRow.landlord_name || "");
+    setCompanyRole(currentCompanyRole);
     setAllowed(true);
     setLoading(false);
   }
@@ -202,142 +244,142 @@ export default function LandlordLeaseDetailPage() {
   }
 
   async function signLeaseAsLandlord() {
-  if (!lease) return;
+    if (!lease) return;
 
-  if (!esignFeePaid) {
-    showError("Please pay the $75 e-sign fee before completing the lease.");
-    return;
-  }
+    if (!esignFeePaid) {
+      showError("Please pay the $75 e-sign fee before completing the lease.");
+      return;
+    }
 
-  if (lease.lease_status !== "tenant_signed") {
-    showError("The tenant must sign before the landlord can complete this lease.");
-    return;
-  }
+    if (lease.lease_status !== "tenant_signed") {
+      showError("The tenant must sign before the landlord can complete this lease.");
+      return;
+    }
 
-  if (!signatureName.trim()) {
-    showError("Please type your legal or company name to sign.");
-    return;
-  }
+    if (!signatureName.trim()) {
+      showError("Please type your legal or company name to sign.");
+      return;
+    }
 
-  if (!agreed) {
-    showError("Please check the agreement box before signing.");
-    return;
-  }
+    if (!agreed) {
+      showError("Please check the agreement box before signing.");
+      return;
+    }
 
-  setSigning(true);
-  setMessage("");
+    setSigning(true);
+    setMessage("");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user) {
-    showError("Please log in again.");
-    setSigning(false);
-    return;
-  }
+    if (!user) {
+      showError("Please log in again.");
+      setSigning(false);
+      return;
+    }
 
-  const { error: signatureError } = await supabase
-    .from("lease_signatures")
-    .insert({
-      lease_id: lease.id,
-      signer_id: user.id,
-      signer_role: "landlord",
-      signer_name: signatureName.trim(),
-      agreement_text:
-        "Landlord electronically agreed to and signed this lease in Keylo.",
-    });
+    const { error: signatureError } = await supabase
+      .from("lease_signatures")
+      .insert({
+        lease_id: lease.id,
+        signer_id: user.id,
+        signer_role: "landlord",
+        signer_name: signatureName.trim(),
+        agreement_text:
+          "Landlord electronically agreed to and signed this lease in Keylo.",
+      });
 
-  if (signatureError) {
-    showError(signatureError.message);
-    setSigning(false);
-    return;
-  }
+    if (signatureError) {
+      showError(signatureError.message);
+      setSigning(false);
+      return;
+    }
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  const { error: leaseError } = await supabase
-    .from("leases")
-    .update({
-      lease_status: "completed",
-      landlord_signed_at: now,
-      completed_at: now,
-      updated_at: now,
-      renewal_status: lease.renewal_parent_lease_id
-        ? "renewal_completed"
-        : lease.renewal_status,
-    })
-    .eq("id", lease.id);
-
-  if (leaseError) {
-    showError(leaseError.message);
-    setSigning(false);
-    return;
-  }
-
-  if (lease.renewal_parent_lease_id) {
-    const { error: parentLeaseError } = await supabase
+    const { error: leaseError } = await supabase
       .from("leases")
       .update({
-        renewal_status: "renewal_completed",
+        lease_status: "completed",
+        landlord_signed_at: now,
+        completed_at: now,
         updated_at: now,
+        renewal_status: lease.renewal_parent_lease_id
+          ? "renewal_completed"
+          : lease.renewal_status,
       })
-      .eq("id", lease.renewal_parent_lease_id);
+      .eq("id", lease.id);
 
-    if (parentLeaseError) {
-      showError(parentLeaseError.message);
+    if (leaseError) {
+      showError(leaseError.message);
       setSigning(false);
       return;
     }
 
-    const { error: renewalRequestError } = await supabase
-      .from("lease_renewal_requests")
-      .update({
-        status: "renewal_signed",
-        closed_at: now,
-        updated_at: now,
-      })
-      .eq("renewal_lease_id", lease.id);
+    if (lease.renewal_parent_lease_id) {
+      const { error: parentLeaseError } = await supabase
+        .from("leases")
+        .update({
+          renewal_status: "renewal_completed",
+          updated_at: now,
+        })
+        .eq("id", lease.renewal_parent_lease_id);
 
-    if (renewalRequestError) {
-      showError(renewalRequestError.message);
-      setSigning(false);
-      return;
+      if (parentLeaseError) {
+        showError(parentLeaseError.message);
+        setSigning(false);
+        return;
+      }
+
+      const { error: renewalRequestError } = await supabase
+        .from("lease_renewal_requests")
+        .update({
+          status: "renewal_signed",
+          closed_at: now,
+          updated_at: now,
+        })
+        .eq("renewal_lease_id", lease.id);
+
+      if (renewalRequestError) {
+        showError(renewalRequestError.message);
+        setSigning(false);
+        return;
+      }
     }
+
+    await createNotification({
+      userId: lease.tenant_id,
+      title: lease.renewal_parent_lease_id
+        ? "Renewal lease completed"
+        : "Lease completed",
+      message: lease.renewal_parent_lease_id
+        ? `Your renewal lease for ${
+            lease.property_address || "the rental"
+          } has been completed. You can download your signed copy.`
+        : `Your lease for ${
+            lease.property_address || "the rental"
+          } has been completed. You can download your signed copy.`,
+      type: "lease_completed",
+      targetUrl: `/dashboard/tenant/leases/${lease.id}`,
+      dedupe: true,
+    });
+
+    setSigning(false);
+    await loadLease();
+
+    showSuccess(
+      lease.renewal_parent_lease_id
+        ? "Renewal lease completed successfully. The original lease was marked as renewal completed."
+        : "Lease completed successfully. Both parties have signed."
+    );
   }
-
-  await createNotification({
-    userId: lease.tenant_id,
-    title: lease.renewal_parent_lease_id
-      ? "Renewal lease completed"
-      : "Lease completed",
-    message: lease.renewal_parent_lease_id
-      ? `Your renewal lease for ${
-          lease.property_address || "the rental"
-        } has been completed. You can download your signed copy.`
-      : `Your lease for ${
-          lease.property_address || "the rental"
-        } has been completed. You can download your signed copy.`,
-    type: "lease_completed",
-    targetUrl: `/dashboard/tenant/leases/${lease.id}`,
-    dedupe: true,
-  });
-
-  setSigning(false);
-  await loadLease();
-
-  showSuccess(
-    lease.renewal_parent_lease_id
-      ? "Renewal lease completed successfully. The original lease was marked as renewal completed."
-      : "Lease completed successfully. Both parties have signed."
-  );
-}
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading lease...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">Loading lease...</h1>
         </div>
       </main>
     );
@@ -345,7 +387,7 @@ export default function LandlordLeaseDetailPage() {
 
   if (!allowed || !lease) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Lease unavailable</h1>
 
@@ -365,10 +407,11 @@ export default function LandlordLeaseDetailPage() {
   const canLandlordSign = lease.lease_status === "tenant_signed";
   const canRateTenant = lease.lease_status === "completed";
   const customSections = getCustomSections(lease);
+  const landlordFeeUserId = currentUserId || lease.landlord_id;
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href={`/dashboard/landlord/applications/${lease.application_id}`}
           className="text-sm font-bold text-slate-600"
@@ -376,20 +419,26 @@ export default function LandlordLeaseDetailPage() {
           ← Back to Application
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Lease
               </p>
 
-              <h1 className="mt-3 text-5xl font-black tracking-tight">
+              <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
                 Lease for {lease.tenant_name || "Tenant"}
               </h1>
 
-              <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
                 {lease.property_address || "No property address provided"}
               </p>
+
+              {companyRole && (
+                <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                  Company role: {companyRole}
+                </p>
+              )}
             </div>
 
             <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
@@ -413,35 +462,18 @@ export default function LandlordLeaseDetailPage() {
             <h2 className="text-2xl font-black">Lease Summary</h2>
 
             <div className="mt-5 grid gap-5 md:grid-cols-2">
-              <InfoCard
-                label="Tenant"
-                value={lease.tenant_name || "Not provided"}
-              />
-              <InfoCard
-                label="Landlord"
-                value={lease.landlord_name || "Not provided"}
-              />
-              <InfoCard
-                label="Monthly Rent"
-                value={formatMoney(lease.monthly_rent)}
-              />
+              <InfoCard label="Tenant" value={lease.tenant_name || "Not provided"} />
+              <InfoCard label="Landlord" value={lease.landlord_name || "Not provided"} />
+              <InfoCard label="Monthly Rent" value={formatMoney(lease.monthly_rent)} />
               <InfoCard
                 label="Security Deposit"
                 value={formatMoney(lease.security_deposit)}
               />
-              <InfoCard
-                label="Start Date"
-                value={lease.lease_start_date || "Not provided"}
-              />
-              <InfoCard
-                label="End Date"
-                value={lease.lease_end_date || "Not provided"}
-              />
+              <InfoCard label="Start Date" value={lease.lease_start_date || "Not provided"} />
+              <InfoCard label="End Date" value={lease.lease_end_date || "Not provided"} />
               <InfoCard
                 label="Rent Due Day"
-                value={
-                  lease.rent_due_day ? String(lease.rent_due_day) : "Not provided"
-                }
+                value={lease.rent_due_day ? String(lease.rent_due_day) : "Not provided"}
               />
               <InfoCard
                 label="Sent to Tenant"
@@ -458,19 +490,10 @@ export default function LandlordLeaseDetailPage() {
             <h2 className="text-2xl font-black">Lease Terms</h2>
 
             <div className="mt-5 grid gap-5">
-              <TextBlock
-                label="Utilities Terms"
-                value={lease.utilities_terms}
-              />
+              <TextBlock label="Utilities Terms" value={lease.utilities_terms} />
               <TextBlock label="Pet Terms" value={lease.pet_terms} />
-              <TextBlock
-                label="Maintenance Terms"
-                value={lease.maintenance_terms}
-              />
-              <TextBlock
-                label="Additional Terms"
-                value={lease.additional_terms}
-              />
+              <TextBlock label="Maintenance Terms" value={lease.maintenance_terms} />
+              <TextBlock label="Additional Terms" value={lease.additional_terms} />
             </div>
           </section>
 
@@ -509,7 +532,7 @@ export default function LandlordLeaseDetailPage() {
             </section>
           )}
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Signing Status</h2>
 
             <div className="mt-5 grid gap-5 md:grid-cols-3">
@@ -545,13 +568,13 @@ export default function LandlordLeaseDetailPage() {
           <section className="mt-8">
             <LeaseFeeBox
               leaseId={lease.id}
-              userId={lease.landlord_id}
+              userId={landlordFeeUserId}
               payerRole="landlord"
               onStatusChange={setEsignFeePaid}
             />
           </section>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Landlord Signature</h2>
 
             {lease.landlord_signed_at ? (
@@ -560,8 +583,7 @@ export default function LandlordLeaseDetailPage() {
                   Landlord signature complete
                 </p>
                 <p className="mt-2 font-bold text-slate-600">
-                  Signed on{" "}
-                  {new Date(lease.landlord_signed_at).toLocaleString()}.
+                  Signed on {new Date(lease.landlord_signed_at).toLocaleString()}.
                 </p>
                 {lease.completed_at && (
                   <p className="mt-2 text-sm font-bold text-slate-500">
@@ -639,7 +661,7 @@ export default function LandlordLeaseDetailPage() {
               ) : (
                 <RatingForm
                   leaseId={lease.id}
-                  reviewerId={lease.landlord_id}
+                  reviewerId={currentUserId || lease.landlord_id}
                   revieweeId={lease.tenant_id}
                   reviewerRole="landlord"
                   revieweeRole="tenant"
@@ -649,27 +671,27 @@ export default function LandlordLeaseDetailPage() {
             </section>
           )}
 
-          <div className="mt-8 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
-  <Link
-    href={`/dashboard/landlord/leases/${lease.id}/payments`}
-    className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
-  >
-    Payments
-  </Link>
+          <div className="mt-8 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Link
+              href={`/dashboard/landlord/leases/${lease.id}/payments`}
+              className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
+            >
+              Payments
+            </Link>
 
-  <Link
-    href={`/dashboard/landlord/leases/${lease.id}/renewal`}
-    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-  >
-    Renewal / Move-Out Plan
-  </Link>
+            <Link
+              href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+            >
+              Renewal / Move-Out Plan
+            </Link>
 
-  <Link
-    href={`/dashboard/landlord/leases/${lease.id}/print`}
-    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-  >
-    Download / Print PDF
-  </Link>
+            <Link
+              href={`/dashboard/landlord/leases/${lease.id}/print`}
+              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+            >
+              Download / Print PDF
+            </Link>
 
             <Link
               href="/dashboard/landlord"

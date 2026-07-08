@@ -6,37 +6,30 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
+type PropertyForLease = {
+  id: string;
+  title: string;
+  monthly_rent: number;
+  street_address: string | null;
+  city: string;
+  state: string;
+  zip_code: string | null;
+  landlord_id: string | null;
+  landlord_company_id: string | null;
+};
+
 type ApplicationRow = {
   id: string;
   tenant_id: string;
   property_id: string;
+  landlord_id: string | null;
+  landlord_company_id: string | null;
   first_name: string;
   last_name: string;
   email: string;
   phone: string | null;
   status: string;
-  properties:
-    | {
-        id: string;
-        title: string;
-        monthly_rent: number;
-        street_address: string | null;
-        city: string;
-        state: string;
-        zip_code: string | null;
-        landlord_id: string | null;
-      }
-    | {
-        id: string;
-        title: string;
-        monthly_rent: number;
-        street_address: string | null;
-        city: string;
-        state: string;
-        zip_code: string | null;
-        landlord_id: string | null;
-      }[]
-    | null;
+  properties: PropertyForLease | PropertyForLease[] | null;
 };
 
 type ProfileRow = {
@@ -72,12 +65,21 @@ type CustomLeaseSection = {
   is_required: boolean;
 };
 
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
 function getProperty(application: ApplicationRow) {
   if (Array.isArray(application.properties)) {
     return application.properties[0] || null;
   }
 
   return application.properties;
+}
+
+function canCreateCompanyLease(role: string) {
+  return role === "owner" || role === "admin" || role === "manager";
 }
 
 export default function CreateLeasePage() {
@@ -170,6 +172,8 @@ export default function CreateLeasePage() {
           id,
           tenant_id,
           property_id,
+          landlord_id,
+          landlord_company_id,
           first_name,
           last_name,
           email,
@@ -183,7 +187,8 @@ export default function CreateLeasePage() {
             city,
             state,
             zip_code,
-            landlord_id
+            landlord_id,
+            landlord_company_id
           )
         `
         )
@@ -201,9 +206,37 @@ export default function CreateLeasePage() {
       const property = getProperty(app);
 
       const isAdmin = profile.role === "admin";
-      const isListingOwner = property?.landlord_id === user.id;
+      const isListingOwner =
+        property?.landlord_id === user.id || app.landlord_id === user.id;
 
-      if (!isAdmin && !isListingOwner) {
+      const companyId =
+        app.landlord_company_id || property?.landlord_company_id || null;
+
+      let isCompanyManager = false;
+
+      if (!isAdmin && !isListingOwner && companyId) {
+        const { data: membership, error: membershipError } = await supabase
+          .from("landlord_company_members")
+          .select("company_id, role")
+          .eq("company_id", companyId)
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .maybeSingle();
+
+        if (membershipError) {
+          setMessage(membershipError.message);
+          setAllowed(false);
+          setLoading(false);
+          return;
+        }
+
+        const companyMembership = membership as CompanyMembership | null;
+
+        isCompanyManager =
+          !!companyMembership && canCreateCompanyLease(companyMembership.role);
+      }
+
+      if (!isAdmin && !isListingOwner && !isCompanyManager) {
         setMessage(
           "You do not have permission to create a lease for this application."
         );
@@ -424,13 +457,20 @@ export default function CreateLeasePage() {
 
     const customSections = buildCustomSections();
 
+    const leaseLandlordId =
+      property.landlord_id || application.landlord_id || landlordId;
+
+    const leaseCompanyId =
+      application.landlord_company_id || property.landlord_company_id || null;
+
     const { data: newLease, error } = await supabase
       .from("leases")
       .insert({
         application_id: application.id,
         property_id: property.id,
         tenant_id: application.tenant_id,
-        landlord_id: landlordId,
+        landlord_id: leaseLandlordId,
+        landlord_company_id: leaseCompanyId,
 
         lease_status: leaseStatus,
 
@@ -522,9 +562,11 @@ export default function CreateLeasePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading lease builder...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading lease builder...
+          </h1>
         </div>
       </main>
     );
@@ -532,7 +574,7 @@ export default function CreateLeasePage() {
 
   if (!allowed || !application) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Lease unavailable</h1>
 
@@ -556,7 +598,7 @@ export default function CreateLeasePage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href={`/dashboard/landlord/applications/${application.id}`}
           className="text-sm font-bold text-slate-600"
@@ -564,16 +606,16 @@ export default function CreateLeasePage() {
           ← Back to Application
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
             Lease Builder
           </p>
 
-          <h1 className="mt-3 text-5xl font-black tracking-tight">
+          <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
             Create Lease
           </h1>
 
-          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
             Build a lease from the approved application for{" "}
             <strong>
               {application.first_name} {application.last_name}
@@ -588,7 +630,7 @@ export default function CreateLeasePage() {
           )}
 
           <div className="mt-8 grid gap-8">
-            <section className="rounded-3xl bg-[#f7f4ef] p-6">
+            <section className="rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-2xl font-black">Lease Template</h2>
@@ -791,7 +833,7 @@ export default function CreateLeasePage() {
               </div>
             </section>
 
-            <section className="rounded-3xl bg-[#f7f4ef] p-6">
+            <section className="rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
               <h2 className="text-2xl font-black">E-Sign Fees</h2>
 
               <p className="mt-3 leading-7 text-slate-600">

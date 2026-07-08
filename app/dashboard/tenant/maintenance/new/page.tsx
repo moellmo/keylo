@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { createNotification } from "@/lib/createNotification";
+import { createCompanyNotifications } from "@/lib/createCompanyNotifications";
 
 type Lease = {
   id: string;
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   lease_status: string;
   tenant_name: string | null;
   landlord_name: string | null;
@@ -61,6 +62,7 @@ export default function NewMaintenanceRequestPage() {
         property_id,
         tenant_id,
         landlord_id,
+        landlord_company_id,
         lease_status,
         tenant_name,
         landlord_name,
@@ -99,9 +101,7 @@ export default function NewMaintenanceRequestPage() {
       file.type.startsWith("image/")
     );
 
-    const limitedFiles = imageFiles.slice(0, 6);
-
-    setSelectedFiles(limitedFiles);
+    setSelectedFiles(imageFiles.slice(0, 6));
   }
 
   async function uploadMaintenancePhotos({
@@ -120,7 +120,9 @@ export default function NewMaintenanceRequestPage() {
         .replace(/[^a-zA-Z0-9.-]/g, "")
         .toLowerCase();
 
-      const filePath = `${selectedLease.tenant_id}/${requestId}/${Date.now()}-${safeFileName || `photo.${fileExt}`}`;
+      const filePath = `${selectedLease.tenant_id}/${requestId}/${Date.now()}-${
+        safeFileName || `photo.${fileExt}`
+      }`;
 
       const { error: uploadError } = await supabase.storage
         .from("maintenance-photos")
@@ -211,6 +213,7 @@ export default function NewMaintenanceRequestPage() {
         property_id: selectedLease.property_id,
         tenant_id: selectedLease.tenant_id,
         landlord_id: selectedLease.landlord_id,
+        landlord_company_id: selectedLease.landlord_company_id,
         title: form.title.trim(),
         description: form.description.trim(),
         priority: form.priority,
@@ -267,16 +270,18 @@ export default function NewMaintenanceRequestPage() {
       return;
     }
 
-    await createNotification({
-      userId: selectedLease.landlord_id,
-      title: "New maintenance request",
-      message: `${selectedLease.tenant_name || "A tenant"} submitted: ${
-        form.title
-      }`,
-      type: "maintenance_request",
-      targetUrl: `/dashboard/landlord/maintenance/${newRequest.id}`,
-      dedupe: false,
-    });
+    await createCompanyNotifications({
+  companyId: selectedLease.landlord_company_id,
+  fallbackUserId: selectedLease.landlord_id,
+  roles: ["owner", "admin", "manager", "maintenance"],
+  title: "New maintenance request",
+  message: `${selectedLease.tenant_name || "A tenant"} submitted: ${
+    form.title
+  }`,
+  type: "maintenance_request",
+  targetUrl: `/dashboard/landlord/maintenance/${newRequest.id}`,
+  dedupe: false,
+});
 
     setSaving(false);
     router.push(`/dashboard/tenant/maintenance/${newRequest.id}`);
@@ -284,9 +289,11 @@ export default function NewMaintenanceRequestPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading request form...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading request form...
+          </h1>
         </div>
       </main>
     );
@@ -294,7 +301,7 @@ export default function NewMaintenanceRequestPage() {
 
   if (!allowed) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Maintenance unavailable</h1>
 
@@ -313,7 +320,7 @@ export default function NewMaintenanceRequestPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/tenant/maintenance"
           className="text-sm font-bold text-slate-600"
@@ -321,16 +328,16 @@ export default function NewMaintenanceRequestPage() {
           ← Back to Maintenance
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
             Maintenance Request
           </p>
 
-          <h1 className="mt-3 text-5xl font-black tracking-tight">
+          <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
             New Request
           </h1>
 
-          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
             Tell your landlord what needs attention. Add photos to help explain
             the issue.
           </p>

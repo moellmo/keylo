@@ -4,12 +4,21 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+type LeaseForCharge = {
+  id: string;
+  property_address: string | null;
+  tenant_name: string | null;
+  landlord_name: string | null;
+  lease_status: string;
+};
+
 type RentCharge = {
   id: string;
   lease_id: string;
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   charge_type:
     | "security_deposit"
     | "first_month_rent"
@@ -24,20 +33,20 @@ type RentCharge = {
   status: "unpaid" | "paid" | "overdue" | "waived" | "cancelled";
   paid_at: string | null;
   created_at: string;
-  leases:
+  leases: LeaseForCharge | LeaseForCharge[] | null;
+};
+
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  landlord_companies:
     | {
         id: string;
-        property_address: string | null;
-        tenant_name: string | null;
-        landlord_name: string | null;
-        lease_status: string;
+        name: string;
       }
     | {
         id: string;
-        property_address: string | null;
-        tenant_name: string | null;
-        landlord_name: string | null;
-        lease_status: string;
+        name: string;
       }[]
     | null;
 };
@@ -48,6 +57,25 @@ function getLease(charge: RentCharge) {
   }
 
   return charge.leases;
+}
+
+function getCompanyFromMembership(membership: CompanyMembership | null) {
+  if (!membership) return null;
+
+  if (Array.isArray(membership.landlord_companies)) {
+    return membership.landlord_companies[0] || null;
+  }
+
+  return membership.landlord_companies;
+}
+
+function canViewPayments(role: string) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting"
+  );
 }
 
 function formatMoneyFromCents(cents: number) {
@@ -82,6 +110,9 @@ export default function LandlordPaymentsPage() {
   const [messageType, setMessageType] = useState<"success" | "error">("error");
   const [charges, setCharges] = useState<RentCharge[]>([]);
   const [savingId, setSavingId] = useState("");
+
+  const [companyName, setCompanyName] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
 
   useEffect(() => {
     loadPayments();
@@ -125,7 +156,60 @@ export default function LandlordPaymentsPage() {
       return;
     }
 
-    const query = supabase
+    let companyId: string | null = null;
+    let membershipRole = "";
+
+    if (profile?.role === "landlord") {
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select(
+          `
+          company_id,
+          role,
+          landlord_companies (
+            id,
+            name
+          )
+        `
+        )
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      if (membershipError) {
+        showError(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const membership =
+        ((membershipRows || [])[0] as unknown as
+          | CompanyMembership
+          | undefined) || null;
+
+      const company = getCompanyFromMembership(membership);
+
+      if (membership && company) {
+        companyId = company.id;
+        membershipRole = membership.role;
+        setCompanyName(company.name);
+        setCompanyRole(membership.role);
+      } else {
+        setCompanyName("");
+        setCompanyRole("");
+      }
+
+      if (membership && !canViewPayments(membership.role)) {
+        showError("Your company role does not have access to payments.");
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+    }
+
+    let query = supabase
       .from("rent_charges")
       .select(
         `
@@ -142,10 +226,31 @@ export default function LandlordPaymentsPage() {
       .order("due_date", { ascending: true })
       .order("created_at", { ascending: true });
 
-    const { data, error } =
-      profile?.role === "admin"
-        ? await query
-        : await query.eq("landlord_id", user.id);
+    if (profile?.role === "admin") {
+      const { data, error } = await query;
+
+      if (error) {
+        showError(error.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      setCharges((data || []) as unknown as RentCharge[]);
+      setAllowed(true);
+      setLoading(false);
+      return;
+    }
+
+    if (companyId && canViewPayments(membershipRole)) {
+      query = query.or(
+        `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
+      );
+    } else {
+      query = query.eq("landlord_id", user.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       showError(error.message);
@@ -239,9 +344,11 @@ export default function LandlordPaymentsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading payments...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading payments...
+          </h1>
         </div>
       </main>
     );
@@ -249,7 +356,7 @@ export default function LandlordPaymentsPage() {
 
   if (!allowed) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Payments unavailable</h1>
 
@@ -268,7 +375,7 @@ export default function LandlordPaymentsPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/landlord"
           className="text-sm font-bold text-slate-600"
@@ -276,21 +383,33 @@ export default function LandlordPaymentsPage() {
           ← Back to Landlord Dashboard
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Rent & Deposit Tracking
               </p>
 
-              <h1 className="mt-3 text-5xl font-black tracking-tight">
+              <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
                 Payments
               </h1>
 
-              <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-                View rent, deposit, late fee, and other lease charges across all
+              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+                View rent, deposit, late fee, and other lease charges across
                 active leases.
               </p>
+
+              {companyName && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    Company: {companyName}
+                  </span>
+
+                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
+                    Role: {companyRole}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -430,7 +549,7 @@ function ChargeCard({
   const lease = getLease(charge);
 
   return (
-    <div className="rounded-3xl bg-[#f7f4ef] p-6">
+    <div className="rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
       <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">

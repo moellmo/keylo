@@ -15,6 +15,7 @@ type PropertyForApplication = {
   city: string;
   state: string;
   landlord_id: string | null;
+  landlord_company_id: string | null;
 };
 
 type ScreeningStatus =
@@ -33,6 +34,7 @@ type ScreeningRequest = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   screening_type:
     | "credit"
     | "background"
@@ -62,6 +64,8 @@ type ApplicationDetail = {
   id: string;
   property_id: string;
   tenant_id: string;
+  landlord_id: string | null;
+landlord_company_id: string | null;
 
   first_name: string;
   last_name: string;
@@ -116,6 +120,15 @@ type TenantDocument = {
   verification_status: string;
   created_at: string;
 };
+
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
+function canReviewApplications(role: string) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
 
 const documentLabels: Record<string, string> = {
   government_id: "Government ID",
@@ -205,13 +218,14 @@ export default function ApplicationDetailPage() {
         `
         *,
         properties (
-          id,
-          title,
-          monthly_rent,
-          city,
-          state,
-          landlord_id
-        )
+  id,
+  title,
+  monthly_rent,
+  city,
+  state,
+  landlord_id,
+  landlord_company_id
+)
       `
       )
       .eq("id", applicationId)
@@ -228,14 +242,42 @@ export default function ApplicationDetailPage() {
     const property = getProperty(app);
 
     const isAdmin = profile?.role === "admin";
-    const isListingOwner = property?.landlord_id === user.id;
+const isListingOwner =
+  property?.landlord_id === user.id || app.landlord_id === user.id;
 
-    if (!isAdmin && !isListingOwner) {
-      setMessage("You do not have permission to view this application.");
-      setAllowed(false);
-      setLoading(false);
-      return;
-    }
+const companyId =
+  app.landlord_company_id || property?.landlord_company_id || null;
+
+let isCompanyReviewer = false;
+
+if (!isAdmin && !isListingOwner && companyId) {
+  const { data: membership, error: membershipError } = await supabase
+    .from("landlord_company_members")
+    .select("company_id, role")
+    .eq("company_id", companyId)
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (membershipError) {
+    setMessage(membershipError.message);
+    setAllowed(false);
+    setLoading(false);
+    return;
+  }
+
+  const companyMembership = membership as CompanyMembership | null;
+
+  isCompanyReviewer =
+    !!companyMembership && canReviewApplications(companyMembership.role);
+}
+
+if (!isAdmin && !isListingOwner && !isCompanyReviewer) {
+  setMessage("You do not have permission to view this application.");
+  setAllowed(false);
+  setLoading(false);
+  return;
+}
 
     const { data: documentRows, error: documentsError } = await supabase
       .from("tenant_documents")
@@ -386,11 +428,13 @@ export default function ApplicationDetailPage() {
     const { data: newRequest, error } = await supabase
       .from("screening_requests")
       .insert({
-        application_id: application.id,
-        property_id: application.property_id,
-        tenant_id: application.tenant_id,
-        landlord_id: property.landlord_id,
-        screening_type: "credit_background",
+  application_id: application.id,
+  property_id: application.property_id,
+  tenant_id: application.tenant_id,
+  landlord_id: property.landlord_id,
+  landlord_company_id:
+    application.landlord_company_id || property.landlord_company_id || null,
+  screening_type: "credit_background",
         status: "requested",
         provider: "manual_placeholder",
         landlord_note:

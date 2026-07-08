@@ -10,6 +10,7 @@ type Lease = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   lease_status: string;
   tenant_name: string | null;
   landlord_name: string | null;
@@ -27,6 +28,7 @@ type RentCharge = {
   property_id: string;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   charge_type:
     | "security_deposit"
     | "first_month_rent"
@@ -42,6 +44,20 @@ type RentCharge = {
   paid_at: string | null;
   created_at: string;
 };
+
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
+function canManagePayments(role: string) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting"
+  );
+}
 
 function formatMoneyFromCents(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, {
@@ -85,6 +101,7 @@ export default function LandlordLeasePaymentsPage() {
   const [lease, setLease] = useState<Lease | null>(null);
   const [charges, setCharges] = useState<RentCharge[]>([]);
   const [saving, setSaving] = useState(false);
+  const [companyRole, setCompanyRole] = useState("");
 
   const [form, setForm] = useState({
     charge_type: "monthly_rent",
@@ -137,6 +154,7 @@ export default function LandlordLeasePaymentsPage() {
         property_id,
         tenant_id,
         landlord_id,
+        landlord_company_id,
         lease_status,
         tenant_name,
         landlord_name,
@@ -160,9 +178,35 @@ export default function LandlordLeasePaymentsPage() {
 
     const currentLease = leaseRow as Lease;
     const isAdmin = profile?.role === "admin";
-    const isLandlord = currentLease.landlord_id === user.id;
+    const isOriginalLandlord = currentLease.landlord_id === user.id;
 
-    if (!isAdmin && !isLandlord) {
+    let isCompanyPaymentUser = false;
+    let currentCompanyRole = "";
+
+    if (!isAdmin && !isOriginalLandlord && currentLease.landlord_company_id) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", currentLease.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        showError(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyPaymentUser =
+        !!companyMembership && canManagePayments(companyMembership.role);
+    }
+
+    if (!isAdmin && !isOriginalLandlord && !isCompanyPaymentUser) {
       showError("You do not have permission to manage payments for this lease.");
       setAllowed(false);
       setLoading(false);
@@ -170,6 +214,7 @@ export default function LandlordLeasePaymentsPage() {
     }
 
     setLease(currentLease);
+    setCompanyRole(currentCompanyRole);
 
     setForm((current) => ({
       ...current,
@@ -254,6 +299,7 @@ export default function LandlordLeasePaymentsPage() {
       property_id: lease.property_id,
       tenant_id: lease.tenant_id,
       landlord_id: lease.landlord_id,
+      landlord_company_id: lease.landlord_company_id,
       charge_type: form.charge_type,
       title: form.title.trim(),
       description: form.description.trim() || null,
@@ -368,6 +414,7 @@ export default function LandlordLeasePaymentsPage() {
         property_id: lease.property_id,
         tenant_id: lease.tenant_id,
         landlord_id: lease.landlord_id,
+        landlord_company_id: lease.landlord_company_id,
         charge_type: "security_deposit",
         title: "Security Deposit",
         description: "Move-in security deposit.",
@@ -384,6 +431,7 @@ export default function LandlordLeasePaymentsPage() {
         property_id: lease.property_id,
         tenant_id: lease.tenant_id,
         landlord_id: lease.landlord_id,
+        landlord_company_id: lease.landlord_company_id,
         charge_type: "first_month_rent",
         title: "First Month Rent",
         description: "First month rent due before move-in.",
@@ -423,9 +471,11 @@ export default function LandlordLeasePaymentsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading payments...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading payments...
+          </h1>
         </div>
       </main>
     );
@@ -433,7 +483,7 @@ export default function LandlordLeasePaymentsPage() {
 
   if (!allowed || !lease) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Payments unavailable</h1>
           <p className="mt-3 text-slate-600">{message}</p>
@@ -451,7 +501,7 @@ export default function LandlordLeasePaymentsPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href={`/dashboard/landlord/leases/${lease.id}`}
           className="text-sm font-bold text-slate-600"
@@ -459,21 +509,27 @@ export default function LandlordLeasePaymentsPage() {
           ← Back to Lease
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Rent & Deposit Tracking
               </p>
 
-              <h1 className="mt-3 text-5xl font-black tracking-tight">
+              <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
                 Lease Payments
               </h1>
 
-              <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
                 {lease.tenant_name || "Tenant"} ·{" "}
                 {lease.property_address || "No property address provided"}
               </p>
+
+              {companyRole && (
+                <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                  Company role: {companyRole}
+                </p>
+              )}
             </div>
 
             <button
@@ -504,7 +560,7 @@ export default function LandlordLeasePaymentsPage() {
             <SummaryCard label="Total Charges" value={String(charges.length)} />
           </section>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Create Charge</h2>
 
             <div className="mt-5 grid gap-5 md:grid-cols-2">

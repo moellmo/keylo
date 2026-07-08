@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { createNotification } from "@/lib/createNotification";
+import { createCompanyNotifications } from "@/lib/createCompanyNotifications";
 
 type Lease = {
   id: string;
   property_id: string | null;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   lease_status: string;
   renewal_status: string | null;
   tenant_name: string | null;
@@ -25,6 +26,7 @@ type Lease = {
 type RenewalRequest = {
   id: string;
   lease_id: string;
+  landlord_company_id: string | null;
   request_type:
     | "tenant_requests_renewal"
     | "tenant_plans_to_move_out"
@@ -125,6 +127,7 @@ export default function TenantLeaseRenewalPage() {
         property_id,
         tenant_id,
         landlord_id,
+        landlord_company_id,
         lease_status,
         renewal_status,
         tenant_name,
@@ -161,6 +164,7 @@ export default function TenantLeaseRenewalPage() {
         `
         id,
         lease_id,
+        landlord_company_id,
         request_type,
         status,
         tenant_message,
@@ -206,6 +210,8 @@ export default function TenantLeaseRenewalPage() {
     setMessage("");
     setSuccessMessage("");
 
+    const now = new Date().toISOString();
+
     const nextRenewalStatus =
       requestType === "tenant_requests_renewal"
         ? "tenant_wants_to_renew"
@@ -221,6 +227,7 @@ export default function TenantLeaseRenewalPage() {
       property_id: lease.property_id,
       tenant_id: lease.tenant_id,
       landlord_id: lease.landlord_id,
+      landlord_company_id: lease.landlord_company_id,
       request_type: requestType,
       status: nextRequestStatus,
       current_lease_end_date: lease.lease_end_date,
@@ -229,7 +236,7 @@ export default function TenantLeaseRenewalPage() {
         (requestType === "tenant_requests_renewal"
           ? "Tenant would like to renew this lease."
           : "Tenant plans to move out when this lease ends."),
-      tenant_responded_at: new Date().toISOString(),
+      tenant_responded_at: now,
     });
 
     if (error) {
@@ -242,7 +249,7 @@ export default function TenantLeaseRenewalPage() {
       .from("leases")
       .update({
         renewal_status: nextRenewalStatus,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq("id", lease.id);
 
@@ -252,8 +259,10 @@ export default function TenantLeaseRenewalPage() {
       return;
     }
 
-    await createNotification({
-      userId: lease.landlord_id,
+    await createCompanyNotifications({
+      companyId: lease.landlord_company_id,
+      fallbackUserId: lease.landlord_id,
+      roles: ["owner", "admin", "manager"],
       title:
         requestType === "tenant_requests_renewal"
           ? "Tenant wants to renew"
@@ -284,9 +293,11 @@ export default function TenantLeaseRenewalPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading renewal page...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading renewal page...
+          </h1>
         </div>
       </main>
     );
@@ -294,7 +305,7 @@ export default function TenantLeaseRenewalPage() {
 
   if (!allowed || !lease) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Renewal unavailable</h1>
           <p className="mt-3 text-slate-600">{message}</p>
@@ -316,7 +327,7 @@ export default function TenantLeaseRenewalPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href={`/dashboard/tenant/leases/${lease.id}`}
           className="text-sm font-bold text-slate-600"
@@ -324,7 +335,7 @@ export default function TenantLeaseRenewalPage() {
           ← Back to Lease
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="border-b border-slate-200 pb-6">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
               Lease Renewal
@@ -334,7 +345,7 @@ export default function TenantLeaseRenewalPage() {
               What’s your plan?
             </h1>
 
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
               Let your landlord know whether you would like to renew or plan to
               move out when the lease ends.
             </p>
@@ -375,7 +386,7 @@ export default function TenantLeaseRenewalPage() {
           </section>
 
           {latestRenewalOffer && (
-            <section className="mt-8 rounded-3xl bg-green-50 p-6 text-green-900 ring-1 ring-green-200">
+            <section className="mt-8 rounded-3xl bg-green-50 p-5 text-green-900 ring-1 ring-green-200 sm:p-6">
               <p className="text-sm font-black uppercase tracking-[0.15em]">
                 Renewal Offer
               </p>
@@ -439,7 +450,7 @@ export default function TenantLeaseRenewalPage() {
             </section>
           )}
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Send Your Plan</h2>
 
             <label className="mt-5 block">
@@ -477,7 +488,7 @@ export default function TenantLeaseRenewalPage() {
             </div>
           </section>
 
-          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
             <h2 className="text-2xl font-black">Renewal History</h2>
 
             {renewalRequests.length > 0 ? (
