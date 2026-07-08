@@ -22,6 +22,8 @@ type Lease = {
   tenant_id: string;
   landlord_id: string;
   lease_status: string;
+  renewal_status: string | null;
+  renewal_parent_lease_id: string | null;
   tenant_name: string | null;
   landlord_name: string | null;
   property_address: string | null;
@@ -200,91 +202,136 @@ export default function LandlordLeaseDetailPage() {
   }
 
   async function signLeaseAsLandlord() {
-    if (!lease) return;
+  if (!lease) return;
 
-    if (!esignFeePaid) {
-      showError("Please pay the $75 e-sign fee before completing the lease.");
-      return;
-    }
+  if (!esignFeePaid) {
+    showError("Please pay the $75 e-sign fee before completing the lease.");
+    return;
+  }
 
-    if (lease.lease_status !== "tenant_signed") {
-      showError("The tenant must sign before the landlord can complete this lease.");
-      return;
-    }
+  if (lease.lease_status !== "tenant_signed") {
+    showError("The tenant must sign before the landlord can complete this lease.");
+    return;
+  }
 
-    if (!signatureName.trim()) {
-      showError("Please type your legal or company name to sign.");
-      return;
-    }
+  if (!signatureName.trim()) {
+    showError("Please type your legal or company name to sign.");
+    return;
+  }
 
-    if (!agreed) {
-      showError("Please check the agreement box before signing.");
-      return;
-    }
+  if (!agreed) {
+    showError("Please check the agreement box before signing.");
+    return;
+  }
 
-    setSigning(true);
-    setMessage("");
+  setSigning(true);
+  setMessage("");
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    if (!user) {
-      showError("Please log in again.");
-      setSigning(false);
-      return;
-    }
+  if (!user) {
+    showError("Please log in again.");
+    setSigning(false);
+    return;
+  }
 
-    const { error: signatureError } = await supabase
-      .from("lease_signatures")
-      .insert({
-        lease_id: lease.id,
-        signer_id: user.id,
-        signer_role: "landlord",
-        signer_name: signatureName.trim(),
-        agreement_text:
-          "Landlord electronically agreed to and signed this lease in Keylo.",
-      });
-
-    if (signatureError) {
-      showError(signatureError.message);
-      setSigning(false);
-      return;
-    }
-
-    const now = new Date().toISOString();
-
-    const { error: leaseError } = await supabase
-      .from("leases")
-      .update({
-        lease_status: "completed",
-        landlord_signed_at: now,
-        completed_at: now,
-        updated_at: now,
-      })
-      .eq("id", lease.id);
-
-    if (leaseError) {
-      showError(leaseError.message);
-      setSigning(false);
-      return;
-    }
-
-    await createNotification({
-      userId: lease.tenant_id,
-      title: "Lease completed",
-      message: `Your lease for ${
-        lease.property_address || "the rental"
-      } has been completed. You can download your signed copy.`,
-      type: "lease_completed",
-      targetUrl: `/dashboard/tenant/leases/${lease.id}`,
-      dedupe: true,
+  const { error: signatureError } = await supabase
+    .from("lease_signatures")
+    .insert({
+      lease_id: lease.id,
+      signer_id: user.id,
+      signer_role: "landlord",
+      signer_name: signatureName.trim(),
+      agreement_text:
+        "Landlord electronically agreed to and signed this lease in Keylo.",
     });
 
+  if (signatureError) {
+    showError(signatureError.message);
     setSigning(false);
-    await loadLease();
-    showSuccess("Lease completed successfully. Both parties have signed.");
+    return;
   }
+
+  const now = new Date().toISOString();
+
+  const { error: leaseError } = await supabase
+    .from("leases")
+    .update({
+      lease_status: "completed",
+      landlord_signed_at: now,
+      completed_at: now,
+      updated_at: now,
+      renewal_status: lease.renewal_parent_lease_id
+        ? "renewal_completed"
+        : lease.renewal_status,
+    })
+    .eq("id", lease.id);
+
+  if (leaseError) {
+    showError(leaseError.message);
+    setSigning(false);
+    return;
+  }
+
+  if (lease.renewal_parent_lease_id) {
+    const { error: parentLeaseError } = await supabase
+      .from("leases")
+      .update({
+        renewal_status: "renewal_completed",
+        updated_at: now,
+      })
+      .eq("id", lease.renewal_parent_lease_id);
+
+    if (parentLeaseError) {
+      showError(parentLeaseError.message);
+      setSigning(false);
+      return;
+    }
+
+    const { error: renewalRequestError } = await supabase
+      .from("lease_renewal_requests")
+      .update({
+        status: "renewal_signed",
+        closed_at: now,
+        updated_at: now,
+      })
+      .eq("renewal_lease_id", lease.id);
+
+    if (renewalRequestError) {
+      showError(renewalRequestError.message);
+      setSigning(false);
+      return;
+    }
+  }
+
+  await createNotification({
+    userId: lease.tenant_id,
+    title: lease.renewal_parent_lease_id
+      ? "Renewal lease completed"
+      : "Lease completed",
+    message: lease.renewal_parent_lease_id
+      ? `Your renewal lease for ${
+          lease.property_address || "the rental"
+        } has been completed. You can download your signed copy.`
+      : `Your lease for ${
+          lease.property_address || "the rental"
+        } has been completed. You can download your signed copy.`,
+    type: "lease_completed",
+    targetUrl: `/dashboard/tenant/leases/${lease.id}`,
+    dedupe: true,
+  });
+
+  setSigning(false);
+  await loadLease();
+
+  showSuccess(
+    lease.renewal_parent_lease_id
+      ? "Renewal lease completed successfully. The original lease was marked as renewal completed."
+      : "Lease completed successfully. Both parties have signed."
+  );
+}
 
   if (loading) {
     return (
