@@ -26,6 +26,7 @@ type ApplicationDetail = {
     monthly_rent: number;
     city: string;
     state: string;
+    landlord_id: string | null;
   } | null;
 };
 
@@ -81,6 +82,7 @@ export default function TenantApplicationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [message, setMessage] = useState("");
+  const [startingConversation, setStartingConversation] = useState(false);
 
   useEffect(() => {
     async function loadApplication() {
@@ -112,7 +114,8 @@ export default function TenantApplicationDetailPage() {
             title,
             monthly_rent,
             city,
-            state
+            state,
+            landlord_id
           )
         `
         )
@@ -142,6 +145,66 @@ export default function TenantApplicationDetailPage() {
 
     loadApplication();
   }, [applicationId]);
+
+  async function startConversation() {
+    if (!application) return;
+
+    if (!application.tenant_id) {
+      setMessage("Could not find the tenant for this application.");
+      return;
+    }
+
+    if (!application.properties?.landlord_id) {
+      setMessage("Could not find the landlord for this application.");
+      return;
+    }
+
+    setStartingConversation(true);
+    setMessage("");
+
+    const { data: existingConversation, error: existingError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("application_id", application.id)
+      .eq("tenant_id", application.tenant_id)
+      .eq("landlord_id", application.properties.landlord_id)
+      .maybeSingle();
+
+    if (existingError) {
+      setMessage(existingError.message);
+      setStartingConversation(false);
+      return;
+    }
+
+    if (existingConversation?.id) {
+      window.location.href = `/dashboard/messages/${existingConversation.id}`;
+      return;
+    }
+
+    const { data: newConversation, error } = await supabase
+      .from("conversations")
+      .insert({
+        application_id: application.id,
+        property_id: application.property_id,
+        tenant_id: application.tenant_id,
+        landlord_id: application.properties.landlord_id,
+        subject: application.properties.title
+          ? `Application for ${application.properties.title}`
+          : "Rental application conversation",
+        last_message: null,
+        last_message_at: null,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      setMessage(error.message);
+      setStartingConversation(false);
+      return;
+    }
+
+    window.location.href = `/dashboard/messages/${newConversation.id}`;
+  }
 
   if (loading) {
     return (
@@ -210,6 +273,12 @@ export default function TenantApplicationDetailPage() {
               {formatStatus(application.status)}
             </span>
           </div>
+
+          {message && (
+            <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-red-700">
+              {message}
+            </div>
+          )}
 
           <div
             className={`mt-6 rounded-2xl px-5 py-4 font-bold ring-1 ${statusBoxStyle(
@@ -314,9 +383,18 @@ export default function TenantApplicationDetailPage() {
           </div>
 
           <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row">
+            <button
+              type="button"
+              onClick={startConversation}
+              disabled={startingConversation}
+              className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white disabled:opacity-60"
+            >
+              {startingConversation ? "Opening..." : "Message Landlord"}
+            </button>
+
             <Link
               href={`/listings/${application.property_id}`}
-              className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
             >
               View Listing
             </Link>

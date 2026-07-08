@@ -95,6 +95,7 @@ export default function ApplicationDetailPage() {
   const [message, setMessage] = useState("");
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [documents, setDocuments] = useState<TenantDocument[]>([]);
+  const [startingConversation, setStartingConversation] = useState(false);
 
   useEffect(() => {
     async function loadApplication() {
@@ -198,6 +199,63 @@ export default function ApplicationDetailPage() {
     }
 
     window.open(data.signedUrl, "_blank");
+  }
+
+  async function startConversation() {
+    if (!application) return;
+
+    const property = getProperty(application);
+
+    if (!property?.landlord_id) {
+      setMessage("Could not find the landlord for this application.");
+      return;
+    }
+
+    setStartingConversation(true);
+    setMessage("");
+
+    const { data: existingConversation, error: existingError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("application_id", application.id)
+      .eq("tenant_id", application.tenant_id)
+      .eq("landlord_id", property.landlord_id)
+      .maybeSingle();
+
+    if (existingError) {
+      setMessage(existingError.message);
+      setStartingConversation(false);
+      return;
+    }
+
+    if (existingConversation?.id) {
+      window.location.href = `/dashboard/messages/${existingConversation.id}`;
+      return;
+    }
+
+    const { data: newConversation, error } = await supabase
+      .from("conversations")
+      .insert({
+        application_id: application.id,
+        property_id: application.property_id,
+        tenant_id: application.tenant_id,
+        landlord_id: property.landlord_id,
+        subject: property.title
+          ? `Application for ${property.title}`
+          : "Rental application conversation",
+        last_message: null,
+        last_message_at: null,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      setMessage(error.message);
+      setStartingConversation(false);
+      return;
+    }
+
+    window.location.href = `/dashboard/messages/${newConversation.id}`;
   }
 
   if (loading) {
@@ -495,6 +553,15 @@ export default function ApplicationDetailPage() {
           </section>
 
           <div className="mt-8 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row">
+            <button
+              type="button"
+              onClick={startConversation}
+              disabled={startingConversation}
+              className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white disabled:opacity-60"
+            >
+              {startingConversation ? "Opening..." : "Message Tenant"}
+            </button>
+
             <StatusButton
               applicationId={application.id}
               status="reviewing"
@@ -509,13 +576,13 @@ export default function ApplicationDetailPage() {
             />
 
             {application.status === "approved" && (
-  <Link
-    href={`/dashboard/landlord/applications/${application.id}/create-lease`}
-    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-  >
-    Create Lease
-  </Link>
-)}
+              <Link
+                href={`/dashboard/landlord/applications/${application.id}/create-lease`}
+                className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+              >
+                Create Lease
+              </Link>
+            )}
 
             <StatusButton
               applicationId={application.id}

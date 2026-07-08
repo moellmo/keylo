@@ -12,6 +12,7 @@ export default function Header() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [role, setRole] = useState<Role>(null);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     async function loadUser() {
@@ -26,6 +27,7 @@ export default function Header() {
       if (!user) {
         setLoggedIn(false);
         setRole(null);
+        setUnreadMessages(0);
         setLoading(false);
         return;
       }
@@ -38,21 +40,43 @@ export default function Header() {
         .eq("id", user.id)
         .maybeSingle();
 
-      setRole((profile?.role as Role) || null);
+      const userRole = (profile?.role as Role) || null;
+
+      setRole(userRole);
+
+      const { count } = await supabase
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_id", user.id)
+        .eq("is_read", false);
+
+      setUnreadMessages(count || 0);
       setLoading(false);
     }
 
     loadUser();
 
     const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      loadUser();
-    });
+  data: { subscription },
+} = supabase.auth.onAuthStateChange(() => {
+  loadUser();
+});
 
-    return () => {
-      subscription.unsubscribe();
-    };
+function refreshUnreadMessages() {
+  loadUser();
+}
+
+window.addEventListener("keylo-messages-read", refreshUnreadMessages);
+
+const interval = window.setInterval(() => {
+  loadUser();
+}, 30000);
+
+return () => {
+  subscription.unsubscribe();
+  window.removeEventListener("keylo-messages-read", refreshUnreadMessages);
+  window.clearInterval(interval);
+};
   }, []);
 
   function dashboardHref() {
@@ -70,6 +94,16 @@ export default function Header() {
 
     return "Dashboard";
   }
+
+  function messagesHref() {
+    if (role === "landlord") return "/dashboard/landlord/messages";
+    if (role === "tenant") return "/dashboard/tenant/messages";
+    if (role === "admin") return "/admin";
+
+    return "/dashboard";
+  }
+
+  const showMessages = role === "tenant" || role === "landlord";
 
   return (
     <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -110,6 +144,23 @@ export default function Header() {
                   className="hidden rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950 sm:inline-flex"
                 >
                   Post Listing
+                </Link>
+              )}
+
+              {showMessages && (
+                <Link
+                  href={messagesHref()}
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-white text-lg font-black text-slate-950"
+                  aria-label="Messages"
+                  title="Messages"
+                >
+                  ✉
+
+                  {unreadMessages > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-black leading-none text-white">
+                      {unreadMessages > 9 ? "9+" : unreadMessages}
+                    </span>
+                  )}
                 </Link>
               )}
 
