@@ -221,7 +221,16 @@ function getApplicationProperty(application: Application) {
             </p>
           </div>
 
-          <LogoutButton />
+                    <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/admin/landlord-verifications"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+            >
+              Landlord Verifications
+            </Link>
+
+            <LogoutButton />
+          </div>
         </div>
 
         {message && (

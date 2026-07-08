@@ -5,43 +5,60 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import LogoutButton from "@/components/LogoutButton";
 
-type Profile = {
-  role: "tenant" | "landlord" | "admin";
-};
+type Role = "tenant" | "landlord" | "admin" | null;
 
 export default function Header() {
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [role, setRole] = useState<Role>(null);
 
   useEffect(() => {
     async function loadUser() {
+      setLoading(true);
+
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const user = session?.user;
 
       if (!user) {
+        setLoggedIn(false);
         setRole(null);
         setLoading(false);
         return;
       }
 
+      setLoggedIn(true);
+
       const { data: profile } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
-      setRole((profile as Profile | null)?.role || null);
+      setRole((profile?.role as Role) || null);
       setLoading(false);
     }
 
     loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      loadUser();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   function dashboardHref() {
     if (role === "admin") return "/admin";
     if (role === "landlord") return "/dashboard/landlord";
     if (role === "tenant") return "/dashboard/tenant";
+
     return "/dashboard";
   }
 
@@ -49,6 +66,7 @@ export default function Header() {
     if (role === "admin") return "Admin Dashboard";
     if (role === "landlord") return "Landlord Dashboard";
     if (role === "tenant") return "Tenant Dashboard";
+
     return "Dashboard";
   }
 
@@ -76,7 +94,7 @@ export default function Header() {
         <div className="flex items-center gap-3">
           {loading ? (
             <div className="h-11 w-28 rounded-full bg-slate-100" />
-          ) : role ? (
+          ) : loggedIn ? (
             <>
               <Link
                 href={dashboardHref()}

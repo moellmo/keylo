@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 const amenityOptions = [
@@ -18,8 +18,13 @@ export default function NewListingPage() {
   const router = useRouter();
 
   const [saving, setSaving] = useState(false);
+  const [loadingVerification, setLoadingVerification] = useState(true);
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
+
+  const [userId, setUserId] = useState("");
+  const [role, setRole] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("incomplete");
 
   const [form, setForm] = useState({
     title: "",
@@ -37,6 +42,70 @@ export default function NewListingPage() {
     amenities: [] as string[],
   });
 
+  useEffect(() => {
+    async function loadVerificationStatus() {
+      setLoadingVerification(true);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setMessage("Please log in as a landlord before posting a listing.");
+        setLoadingVerification(false);
+        return;
+      }
+
+      setUserId(user.id);
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+
+      if (profileError || !profile) {
+        setMessage("Could not load your account.");
+        setLoadingVerification(false);
+        return;
+      }
+
+      setRole(profile.role);
+
+      if (profile.role === "admin") {
+        setVerificationStatus("verified");
+        setLoadingVerification(false);
+        return;
+      }
+
+      if (profile.role !== "landlord") {
+        setMessage("Only landlord accounts can post rental listings.");
+        setLoadingVerification(false);
+        return;
+      }
+
+      const { data: verificationRow, error: verificationError } = await supabase
+        .from("landlord_verifications")
+        .select("verification_status")
+        .eq("landlord_id", user.id)
+        .maybeSingle();
+
+      if (verificationError) {
+        setMessage(verificationError.message);
+        setLoadingVerification(false);
+        return;
+      }
+
+      setVerificationStatus(
+        verificationRow?.verification_status || "incomplete"
+      );
+
+      setLoadingVerification(false);
+    }
+
+    loadVerificationStatus();
+  }, []);
+
   function updateField(field: keyof typeof form, value: string | string[]) {
     setForm((current) => ({
       ...current,
@@ -44,17 +113,30 @@ export default function NewListingPage() {
     }));
   }
 
-  function toggleAmenity(amenity: string) {
-    const exists = form.amenities.includes(amenity);
+ function toggleAmenity(amenity: string) {
+  const exists = form.amenities.includes(amenity);
 
-    if (exists) {
-      updateField(
-        "amenities",
-        form.amenities.filter((item) => item !== amenity)
-      );
-    } else {
-      updateField("amenities", [...form.amenities, amenity]);
-    }
+  if (exists) {
+    updateField(
+      "amenities",
+      form.amenities.filter((item) => item !== amenity)
+    );
+  } else {
+    updateField("amenities", [...form.amenities, amenity]);
+  }
+}
+
+function formatStatus(status: string) {
+    if (status === "pending_review") return "Pending Review";
+    if (status === "incomplete") return "Incomplete";
+    if (status === "verified") return "Verified";
+    if (status === "rejected") return "Rejected";
+
+    return status;
+  }
+
+  function canSubmitListing() {
+    return role === "admin" || verificationStatus === "verified";
   }
 
   async function saveListing() {
@@ -67,24 +149,22 @@ export default function NewListingPage() {
       return;
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!userId) {
       setMessage("Please log in as a landlord before posting a listing.");
       setSaving(false);
       return;
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "landlord" && profile?.role !== "admin") {
+    if (role !== "landlord" && role !== "admin") {
       setMessage("Only landlord accounts can post rental listings.");
+      setSaving(false);
+      return;
+    }
+
+    if (!canSubmitListing()) {
+      setMessage(
+        "Landlord verification is required before submitting a listing for review."
+      );
       setSaving(false);
       return;
     }
@@ -92,7 +172,7 @@ export default function NewListingPage() {
     const { data: newProperty, error } = await supabase
       .from("properties")
       .insert({
-        landlord_id: user.id,
+        landlord_id: userId,
         title: form.title,
         monthly_rent: Number(form.monthly_rent),
         available_date: form.available_date || null,
@@ -112,7 +192,9 @@ export default function NewListingPage() {
       .single();
 
     if (error) {
-      setMessage(`Error saving listing: ${error.message || JSON.stringify(error)}`);
+      setMessage(
+        `Error saving listing: ${error.message || JSON.stringify(error)}`
+      );
       setSaving(false);
       return;
     }
@@ -165,17 +247,32 @@ export default function NewListingPage() {
       }
     }
 
-    setMessage("Listing saved successfully.");
+    setMessage("Listing submitted for review.");
     setSaving(false);
 
     router.push("/dashboard/landlord");
   }
 
+  if (loadingVerification) {
+    return (
+      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+        <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+          <h1 className="text-3xl font-black">Loading listing form...</h1>
+        </div>
+      </main>
+    );
+  }
+
+  const verified = canSubmitListing();
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <Link href="/" className="text-sm font-bold text-slate-600">
-          ← Back to Home
+        <Link
+          href="/dashboard/landlord"
+          className="text-sm font-bold text-slate-600"
+        >
+          ← Back to Landlord Dashboard
         </Link>
 
         <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
@@ -184,14 +281,43 @@ export default function NewListingPage() {
               Landlord Dashboard
             </p>
 
-            <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
-              Post a Rental Listing
-            </h1>
+            <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h1 className="text-4xl font-black tracking-tight md:text-5xl">
+                  Post a Rental Listing
+                </h1>
 
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-              Add the rental details tenants need before applying.
-            </p>
+                <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
+                  Add the rental details tenants need before applying.
+                </p>
+              </div>
+
+              <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                Verification: {formatStatus(verificationStatus)}
+              </span>
+            </div>
           </div>
+
+          {!verified && (
+            <div className="mt-6 rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-200">
+              <h2 className="text-2xl font-black text-amber-900">
+                Verification Required
+              </h2>
+
+              <p className="mt-3 leading-7 font-bold text-amber-800">
+                You need to complete landlord verification before submitting a
+                listing for review. You can upload your ID, proof of ownership,
+                tax bill, utility bill, or management agreement.
+              </p>
+
+              <Link
+                href="/dashboard/landlord/verification"
+                className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+              >
+                Go to Verification
+              </Link>
+            </div>
+          )}
 
           {message && (
             <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-slate-800">
@@ -418,7 +544,8 @@ export default function NewListingPage() {
               <div className="mt-5 rounded-3xl border-2 border-dashed border-slate-300 bg-[#f7f4ef] p-8 text-center">
                 <p className="text-lg font-black">Upload property photos</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Select one or more images. These will upload when you save the listing.
+                  Select one or more images. These will upload when you save the
+                  listing.
                 </p>
 
                 <input
@@ -461,19 +588,28 @@ export default function NewListingPage() {
 
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
               <Link
-                href="/listings"
+                href="/dashboard/landlord"
                 className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
               >
                 Cancel
               </Link>
 
+              {!verified && (
+                <Link
+                  href="/dashboard/landlord/verification"
+                  className="rounded-full border border-amber-300 bg-amber-50 px-6 py-3 text-center font-black text-amber-900"
+                >
+                  Complete Verification
+                </Link>
+              )}
+
               <button
                 type="button"
                 onClick={saveListing}
-                disabled={saving}
+                disabled={saving || !verified}
                 className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
               >
-                {saving ? "Saving..." : "Save Listing Draft"}
+                {saving ? "Submitting..." : "Submit Listing for Review"}
               </button>
             </div>
           </form>

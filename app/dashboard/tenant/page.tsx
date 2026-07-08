@@ -202,6 +202,23 @@ export default function TenantDashboardPage() {
           </Link>
 
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
+  <Link
+    href="/dashboard/tenant/documents"
+    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+  >
+    Documents
+  </Link>
+
+  <Link
+    href="/dashboard/tenant/profile"
+    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+  >
+    Edit Profile
+  </Link>
+
+  <LogoutButton />
+</div>
             <Link
               href="/dashboard/tenant/profile"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"

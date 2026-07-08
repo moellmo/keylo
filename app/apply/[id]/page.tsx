@@ -1,171 +1,280 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+
+type Property = {
+  id: string;
+  title: string;
+  monthly_rent: number;
+  city: string;
+  state: string;
+  bedrooms: string | null;
+  bathrooms: string | null;
+  status: string;
+};
+
+type BasicProfile = {
+  email: string | null;
+  full_name: string | null;
+  phone: string | null;
+};
+
+type TenantProfile = {
+  legal_first_name: string | null;
+  legal_last_name: string | null;
+  date_of_birth: string | null;
+  phone: string | null;
+
+  current_street_address: string | null;
+  current_city: string | null;
+  current_state: string | null;
+  current_zip_code: string | null;
+
+  employment_status: string | null;
+  employer_name: string | null;
+  job_title: string | null;
+  monthly_income: number | null;
+  additional_income: number | null;
+
+  household_size: number | null;
+  pets: string | null;
+  desired_move_in_date: string | null;
+
+  current_landlord_name: string | null;
+  current_landlord_phone: string | null;
+  current_landlord_email: string | null;
+
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_relationship: string | null;
+
+  profile_status: string | null;
+};
 
 export default function ApplyPage() {
   const params = useParams();
-  const propertyId = params.id as string;
+  const router = useRouter();
+
+  const propertyId = String(params.id);
 
   const [loading, setLoading] = useState(true);
-  const [allowed, setAllowed] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [userId, setUserId] = useState("");
+  const [property, setProperty] = useState<Property | null>(null);
+  const [basicProfile, setBasicProfile] = useState<BasicProfile | null>(null);
+  const [tenantProfile, setTenantProfile] = useState<TenantProfile | null>(
+    null
+  );
+
+  const [documentCount, setDocumentCount] = useState(0);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
+  const [moveInDate, setMoveInDate] = useState("");
   const [message, setMessage] = useState("");
 
-  const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    monthly_income: "",
-    move_in_date: "",
-    household_size: "",
-    pets: "",
-    message: "",
-  });
-
   useEffect(() => {
-  async function checkTenant() {
-    setLoading(true);
+    async function loadApplicationPage() {
+      setLoading(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (!user) {
-      setAllowed(false);
-      setMessage("Please log in as a tenant before applying.");
+      if (!user) {
+        setMessage("Please log in as a tenant to apply.");
+        setLoading(false);
+        return;
+      }
+
+      setUserId(user.id);
+
+      const { data: profileRow, error: profileError } = await supabase
+        .from("profiles")
+        .select("email, full_name, phone, role")
+        .eq("id", user.id)
+        .single();
+
+      if (profileError) {
+        setMessage(profileError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (profileRow?.role !== "tenant" && profileRow?.role !== "admin") {
+        setMessage("You must be logged in as a tenant to apply.");
+        setLoading(false);
+        return;
+      }
+
+      setBasicProfile({
+        email: profileRow.email || user.email || "",
+        full_name: profileRow.full_name || "",
+        phone: profileRow.phone || "",
+      });
+
+      const { data: propertyRow, error: propertyError } = await supabase
+        .from("properties")
+        .select(
+          "id, title, monthly_rent, city, state, bedrooms, bathrooms, status"
+        )
+        .eq("id", propertyId)
+        .eq("status", "published")
+        .single();
+
+      if (propertyError || !propertyRow) {
+        setMessage("This listing is not available for applications.");
+        setLoading(false);
+        return;
+      }
+
+      setProperty(propertyRow as Property);
+
+      const { data: tenantProfileRow, error: tenantProfileError } =
+        await supabase
+          .from("tenant_profiles")
+          .select("*")
+          .eq("tenant_id", user.id)
+          .maybeSingle();
+
+      if (tenantProfileError) {
+        setMessage(tenantProfileError.message);
+        setLoading(false);
+        return;
+      }
+
+      setTenantProfile((tenantProfileRow || null) as TenantProfile | null);
+
+      if (tenantProfileRow?.desired_move_in_date) {
+        setMoveInDate(tenantProfileRow.desired_move_in_date);
+      }
+
+      const { count: docsCount, error: docsError } = await supabase
+        .from("tenant_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", user.id);
+
+      if (docsError) {
+        setMessage(docsError.message);
+        setLoading(false);
+        return;
+      }
+
+      setDocumentCount(docsCount || 0);
+
+      const { data: existingApplication, error: existingError } =
+        await supabase
+          .from("applications")
+          .select("id")
+          .eq("tenant_id", user.id)
+          .eq("property_id", propertyId)
+          .maybeSingle();
+
+      if (existingError) {
+        setMessage(existingError.message);
+        setLoading(false);
+        return;
+      }
+
+      setAlreadyApplied(!!existingApplication);
       setLoading(false);
-      return;
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, email, full_name, phone, monthly_income, household_size, pets")
-      .eq("id", user.id)
-      .single();
+    loadApplicationPage();
+  }, [propertyId]);
 
-    if (profile?.role !== "tenant" && profile?.role !== "admin") {
-      setAllowed(false);
-      setMessage("Only tenant accounts can apply to rental listings.");
-      setLoading(false);
-      return;
-    }
+  function profileIsComplete() {
+    if (!tenantProfile) return false;
 
-    const savedFullName =
-      profile?.full_name ||
-      user.user_metadata?.full_name ||
-      user.user_metadata?.name ||
-      "";
-
-    const savedEmail = profile?.email || user.email || "";
-
-    const nameParts = savedFullName.trim().split(" ").filter(Boolean);
-    const firstName = nameParts[0] || "";
-    const lastName = nameParts.slice(1).join(" ") || "";
-
-    setForm((current) => ({
-  ...current,
-  first_name: current.first_name || firstName,
-  last_name: current.last_name || lastName,
-  email: current.email || savedEmail,
-  phone: current.phone || profile?.phone || "",
-  monthly_income:
-    current.monthly_income ||
-    (profile?.monthly_income ? String(profile.monthly_income) : ""),
-  household_size:
-    current.household_size ||
-    (profile?.household_size ? String(profile.household_size) : ""),
-  pets: current.pets || profile?.pets || "",
-}));
-
-    setAllowed(true);
-    setLoading(false);
-  }
-
-  checkTenant();
-}, []);
-
-  function updateField(field: keyof typeof form, value: string) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    return (
+      !!tenantProfile.legal_first_name &&
+      !!tenantProfile.legal_last_name &&
+      !!tenantProfile.date_of_birth &&
+      !!tenantProfile.phone &&
+      !!tenantProfile.current_street_address &&
+      !!tenantProfile.current_city &&
+      !!tenantProfile.current_state &&
+      !!tenantProfile.current_zip_code &&
+      !!tenantProfile.employment_status &&
+      !!tenantProfile.monthly_income &&
+      !!tenantProfile.household_size
+    );
   }
 
   async function submitApplication() {
-    setSaving(true);
+    if (!userId || !property || !tenantProfile || !basicProfile) {
+      setMessage("Missing application information.");
+      return;
+    }
+
+    if (!profileIsComplete()) {
+      setMessage("Please complete your Instant Apply profile before applying.");
+      return;
+    }
+
+    if (alreadyApplied) {
+      setMessage("You already applied to this listing.");
+      return;
+    }
+
+    setSubmitting(true);
     setMessage("");
 
-    if (!form.first_name || !form.last_name || !form.email) {
-      setMessage("Please fill in first name, last name, and email.");
-      setSaving(false);
-      return;
-    }
+    const { error } = await supabase.from("applications").insert({
+      property_id: property.id,
+      tenant_id: userId,
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      first_name: tenantProfile.legal_first_name,
+      last_name: tenantProfile.legal_last_name,
+      email: basicProfile.email,
+      phone: tenantProfile.phone,
 
-    if (!user) {
-      setMessage("Please log in as a tenant before applying.");
-      setSaving(false);
-      return;
-    }
-const { data: applicationData, error } = await supabase
-  .from("applications")
-  .insert({
-    property_id: propertyId,
-    tenant_id: user.id,
-    first_name: form.first_name,
-    last_name: form.last_name,
-    email: form.email,
-    phone: form.phone,
-    monthly_income: form.monthly_income ? Number(form.monthly_income) : null,
-    move_in_date: form.move_in_date || null,
-    household_size: form.household_size ? Number(form.household_size) : null,
-    pets: form.pets,
-    message: form.message,
-    status: "submitted",
-  })
-  .select("id")
-  .single();
+      monthly_income: tenantProfile.monthly_income,
+      household_size: tenantProfile.household_size,
+      pets: tenantProfile.pets,
+      move_in_date: moveInDate || tenantProfile.desired_move_in_date || null,
+
+      legal_first_name: tenantProfile.legal_first_name,
+      legal_last_name: tenantProfile.legal_last_name,
+      date_of_birth: tenantProfile.date_of_birth,
+
+      current_street_address: tenantProfile.current_street_address,
+      current_city: tenantProfile.current_city,
+      current_state: tenantProfile.current_state,
+      current_zip_code: tenantProfile.current_zip_code,
+
+      employment_status: tenantProfile.employment_status,
+      employer_name: tenantProfile.employer_name,
+      job_title: tenantProfile.job_title,
+      additional_income: tenantProfile.additional_income,
+
+      desired_move_in_date:
+        moveInDate || tenantProfile.desired_move_in_date || null,
+
+      current_landlord_name: tenantProfile.current_landlord_name,
+      current_landlord_phone: tenantProfile.current_landlord_phone,
+      current_landlord_email: tenantProfile.current_landlord_email,
+
+      emergency_contact_name: tenantProfile.emergency_contact_name,
+      emergency_contact_phone: tenantProfile.emergency_contact_phone,
+      emergency_contact_relationship:
+        tenantProfile.emergency_contact_relationship,
+
+      tenant_profile_status: tenantProfile.profile_status || "incomplete",
+      tenant_document_count: documentCount,
+
+      status: "submitted",
+    });
 
     if (error) {
-      if (
-        error.message.includes("duplicate") ||
-        error.message.includes("unique")
-      ) {
-        setMessage(
-          "You already applied to this listing. You can track it in your tenant dashboard."
-        );
-      } else {
-        setMessage(`Error submitting application: ${error.message}`);
-      }
-
-      setSaving(false);
+      setMessage(error.message);
+      setSubmitting(false);
       return;
     }
 
-    if (applicationData?.id) {
-  await fetch("/api/email/new-application", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      applicationId: applicationData.id,
-    }),
-  });
-}
-
-    setMessage("Application submitted successfully.");
-    setSaving(false);
-
-    window.location.href = "/dashboard/tenant";
-    return;
+    router.push("/dashboard/tenant");
   }
 
   if (loading) {
@@ -178,62 +287,49 @@ const { data: applicationData, error } = await supabase
     );
   }
 
-  if (!allowed) {
+  if (!property) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-        <div className="mx-auto max-w-3xl px-6 py-10">
-          <Link href={`/listings/${propertyId}`} className="text-sm font-bold text-slate-600">
-            ← Back to Listing
+      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+        <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+          <h1 className="text-3xl font-black">Application unavailable</h1>
+
+          <p className="mt-3 text-slate-600">
+            {message || "This rental is not available for applications."}
+          </p>
+
+          <Link
+            href="/listings"
+            className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+          >
+            Browse Rentals
           </Link>
-
-          <div className="mt-6 rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-            <h1 className="text-3xl font-black">Login Required</h1>
-
-            <p className="mt-3 text-slate-600">{message}</p>
-
-            <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link
-                href="/auth/login"
-                className="rounded-full bg-slate-950 px-6 py-3 font-black text-white"
-              >
-                Login
-              </Link>
-
-              <Link
-                href="/auth/signup"
-                className="rounded-full border border-slate-300 bg-white px-6 py-3 font-black"
-              >
-                Create Tenant Account
-              </Link>
-            </div>
-          </div>
         </div>
       </main>
     );
   }
 
+  const complete = profileIsComplete();
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        <Link href={`/listings/${propertyId}`} className="text-sm font-bold text-slate-600">
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <Link href={`/listings/${property.id}`} className="text-sm font-bold text-slate-600">
           ← Back to Listing
         </Link>
 
         <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 pb-6">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-              Tenant Application
-            </p>
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+            Keylo Instant Apply
+          </p>
 
-            <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
-              Apply for this rental
-            </h1>
+          <h1 className="mt-3 text-5xl font-black tracking-tight">
+            Apply to {property.title}
+          </h1>
 
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-              Submit your basic rental application details. Later this will become
-              Keylo Instant Apply with tenant profiles, document uploads, and screening.
-            </p>
-          </div>
+          <p className="mt-4 text-lg leading-8 text-slate-600">
+            {property.city}, {property.state} · $
+            {property.monthly_rent.toLocaleString()}/mo
+          </p>
 
           {message && (
             <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-slate-800">
@@ -241,149 +337,136 @@ const { data: applicationData, error } = await supabase
             </div>
           )}
 
-          <form className="mt-8 space-y-8">
-            <section>
-              <h2 className="text-2xl font-black">Applicant information</h2>
-
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    First name *
-                  </label>
-                  <input
-                    value={form.first_name}
-                    onChange={(e) => updateField("first_name", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="First name"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Last name *
-                  </label>
-                  <input
-                    value={form.last_name}
-                    onChange={(e) => updateField("last_name", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Last name"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Email *
-                  </label>
-                  <input
-                    value={form.email}
-                    onChange={(e) => updateField("email", e.target.value)}
-                    type="email"
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="you@example.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Phone
-                  </label>
-                  <input
-                    value={form.phone}
-                    onChange={(e) => updateField("phone", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Phone number"
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-black">Rental details</h2>
-
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Monthly income
-                  </label>
-                  <input
-                    value={form.monthly_income}
-                    onChange={(e) => updateField("monthly_income", e.target.value)}
-                    type="number"
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Example: 8500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Desired move-in date
-                  </label>
-                  <input
-                    value={form.move_in_date}
-                    onChange={(e) => updateField("move_in_date", e.target.value)}
-                    type="date"
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Household size
-                  </label>
-                  <input
-                    value={form.household_size}
-                    onChange={(e) => updateField("household_size", e.target.value)}
-                    type="number"
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Example: 4"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Pets
-                  </label>
-                  <input
-                    value={form.pets}
-                    onChange={(e) => updateField("pets", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="No pets / 1 small dog / cat, etc."
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-black">
-                    Message to landlord
-                  </label>
-                  <textarea
-                    value={form.message}
-                    onChange={(e) => updateField("message", e.target.value)}
-                    rows={5}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Tell the landlord anything helpful about your application."
-                  />
-                </div>
-              </div>
-            </section>
-
-            <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
-              <Link
-                href={`/listings/${propertyId}`}
-                className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-              >
-                Cancel
-              </Link>
-
-              <button
-                type="button"
-                onClick={submitApplication}
-                disabled={saving}
-                className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-              >
-                {saving ? "Submitting..." : "Submit Application"}
-              </button>
+          {alreadyApplied && (
+            <div className="mt-6 rounded-2xl bg-amber-50 px-5 py-4 font-bold text-amber-800">
+              You already applied to this listing.
             </div>
-          </form>
+          )}
+
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-3xl bg-[#f7f4ef] p-6">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Profile
+              </p>
+
+              <p className="mt-3 text-2xl font-black">
+                {complete ? "Complete" : "Incomplete"}
+              </p>
+
+              {!complete && (
+                <Link
+  href={`/dashboard/tenant/profile?returnTo=/apply/${property.id}`}
+  className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+>
+  Complete Profile
+</Link>
+              )}
+            </div>
+
+            <div className="rounded-3xl bg-[#f7f4ef] p-6">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Documents
+              </p>
+
+              <p className="mt-3 text-2xl font-black">
+                {documentCount} Uploaded
+              </p>
+
+              <Link
+  href={`/dashboard/tenant/documents?returnTo=/apply/${property.id}`}
+  className="mt-4 inline-flex rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black"
+>
+  Manage Documents
+</Link>
+            </div>
+
+            <div className="rounded-3xl bg-[#f7f4ef] p-6">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Application
+              </p>
+
+              <p className="mt-3 text-2xl font-black">
+                {alreadyApplied ? "Submitted" : "Ready"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-3xl border border-slate-200 p-6">
+            <h2 className="text-2xl font-black">Application Snapshot</h2>
+
+            {tenantProfile ? (
+              <div className="mt-5 grid gap-4 text-sm font-bold text-slate-600 md:grid-cols-2">
+                <p>
+                  Name: {tenantProfile.legal_first_name}{" "}
+                  {tenantProfile.legal_last_name}
+                </p>
+
+                <p>Email: {basicProfile?.email || "Not provided"}</p>
+
+                <p>Phone: {tenantProfile.phone || "Not provided"}</p>
+
+                <p>
+                  Monthly Income:{" "}
+                  {tenantProfile.monthly_income
+                    ? `$${tenantProfile.monthly_income.toLocaleString()}`
+                    : "Not provided"}
+                </p>
+
+                <p>
+                  Household Size:{" "}
+                  {tenantProfile.household_size || "Not provided"}
+                </p>
+
+                <p>Pets: {tenantProfile.pets || "Not provided"}</p>
+
+                <p>
+                  Employment:{" "}
+                  {tenantProfile.employment_status || "Not provided"}
+                </p>
+
+                <p>
+                  Current Address:{" "}
+                  {tenantProfile.current_city && tenantProfile.current_state
+                    ? `${tenantProfile.current_city}, ${tenantProfile.current_state}`
+                    : "Not provided"}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4 text-slate-600">
+                You need to complete your tenant profile before applying.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-8">
+            <label className="block">
+              <span className="mb-2 block text-sm font-black text-slate-700">
+                Desired Move-in Date
+              </span>
+
+              <input
+                type="date"
+                value={moveInDate}
+                onChange={(event) => setMoveInDate(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            onClick={submitApplication}
+            disabled={submitting || alreadyApplied || !complete}
+            className="mt-8 w-full rounded-full bg-slate-950 px-6 py-4 font-black text-white disabled:opacity-60"
+          >
+            {submitting
+              ? "Submitting..."
+              : alreadyApplied
+              ? "Already Applied"
+              : complete
+              ? "Submit Instant Application"
+              : "Complete Profile to Apply"}
+          </button>
         </div>
       </div>
     </main>
