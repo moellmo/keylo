@@ -1213,11 +1213,30 @@ export default function AdminPage() {
 
         {activeTab === "leases" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <SectionHeader
-              title="Recent Leases"
-              text="Showing latest 25 leases. We can add full pagination later."
-              badge={`${dashboardData.activeLeases.length} active`}
-            />
+            <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Recent Leases</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Showing latest 25 leases. Use the full leases page for search, lease
+        status filters, renewal filters, and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {dashboardData.activeLeases.length} active
+      </span>
+
+      <Link
+        href="/admin/leases"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Leases
+      </Link>
+    </div>
+  </div>
+</div>
 
             {leases.length > 0 ? (
               <div className="divide-y divide-slate-200">
