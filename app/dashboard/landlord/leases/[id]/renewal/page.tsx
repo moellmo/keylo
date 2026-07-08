@@ -6,13 +6,22 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
+type CustomLeaseSection = {
+  section_title: string;
+  section_body: string;
+  sort_order: number;
+  is_required: boolean;
+};
+
 type Lease = {
   id: string;
+  application_id: string | null;
   property_id: string | null;
   tenant_id: string;
   landlord_id: string;
   lease_status: string;
   renewal_status: string | null;
+  renewal_parent_lease_id: string | null;
   tenant_name: string | null;
   landlord_name: string | null;
   property_address: string | null;
@@ -20,6 +29,12 @@ type Lease = {
   security_deposit: number | null;
   lease_start_date: string | null;
   lease_end_date: string | null;
+  rent_due_day: number | null;
+  utilities_terms: string | null;
+  pet_terms: string | null;
+  maintenance_terms: string | null;
+  additional_terms: string | null;
+  custom_sections: CustomLeaseSection[] | null;
 };
 
 type RenewalRequest = {
@@ -38,6 +53,7 @@ type RenewalRequest = {
   proposed_security_deposit: number | null;
   proposed_lease_start_date: string | null;
   proposed_lease_end_date: string | null;
+  renewal_lease_id: string | null;
   created_at: string;
 };
 
@@ -72,6 +88,7 @@ export default function LandlordLeaseRenewalPage() {
   const [proposedStartDate, setProposedStartDate] = useState("");
   const [proposedEndDate, setProposedEndDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [creatingLeaseId, setCreatingLeaseId] = useState<string | null>(null);
 
   useEffect(() => {
     loadPage();
@@ -96,23 +113,7 @@ export default function LandlordLeaseRenewalPage() {
 
     const { data: leaseRow, error: leaseError } = await supabase
       .from("leases")
-      .select(
-        `
-        id,
-        property_id,
-        tenant_id,
-        landlord_id,
-        lease_status,
-        renewal_status,
-        tenant_name,
-        landlord_name,
-        property_address,
-        monthly_rent,
-        security_deposit,
-        lease_start_date,
-        lease_end_date
-      `
-      )
+      .select("*")
       .eq("id", leaseId)
       .single();
 
@@ -146,6 +147,7 @@ export default function LandlordLeaseRenewalPage() {
         proposed_security_deposit,
         proposed_lease_start_date,
         proposed_lease_end_date,
+        renewal_lease_id,
         created_at
       `
       )
@@ -166,9 +168,21 @@ export default function LandlordLeaseRenewalPage() {
   }
 
   async function submitLandlordAction(
-    requestType: "landlord_asks_plan" | "landlord_offers_renewal" | "landlord_declines_renewal"
+    requestType:
+      | "landlord_asks_plan"
+      | "landlord_offers_renewal"
+      | "landlord_declines_renewal"
   ) {
     if (!lease) return;
+
+    if (requestType === "landlord_offers_renewal") {
+      if (!proposedRent || !proposedStartDate || !proposedEndDate) {
+        setMessage(
+          "Please enter proposed rent, renewal start date, and renewal end date before sending a renewal offer."
+        );
+        return;
+      }
+    }
 
     setSaving(true);
     setMessage("");
@@ -287,12 +301,170 @@ export default function LandlordLeaseRenewalPage() {
       requestType === "landlord_asks_plan"
         ? "Plan request sent to tenant."
         : requestType === "landlord_offers_renewal"
-          ? "Renewal offer sent to tenant."
+          ? "Renewal offer sent to tenant. You can now create the renewal lease from the offer below."
           : "Renewal declined notice saved."
     );
 
     await loadPage();
     setSaving(false);
+  }
+
+  async function createRenewalLease(request: RenewalRequest) {
+    if (!lease) return;
+
+    if (request.renewal_lease_id) {
+      setMessage("A renewal lease was already created from this offer.");
+      return;
+    }
+
+    if (
+      request.request_type !== "landlord_offers_renewal" ||
+      !request.proposed_monthly_rent ||
+      !request.proposed_lease_start_date ||
+      !request.proposed_lease_end_date
+    ) {
+      setMessage(
+        "This renewal offer is missing rent, start date, or end date."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Create a new renewal lease using these renewal terms and send it to the tenant for signature?"
+    );
+
+    if (!confirmed) return;
+
+    setCreatingLeaseId(request.id);
+    setMessage("");
+    setSuccessMessage("");
+
+    const now = new Date().toISOString();
+
+    const renewalLeasePayload = {
+      application_id: lease.application_id,
+      property_id: lease.property_id,
+      tenant_id: lease.tenant_id,
+      landlord_id: lease.landlord_id,
+
+      lease_status: "sent_to_tenant",
+
+      tenant_name: lease.tenant_name,
+      landlord_name: lease.landlord_name,
+      property_address: lease.property_address,
+
+      monthly_rent: request.proposed_monthly_rent,
+      security_deposit:
+        request.proposed_security_deposit ?? lease.security_deposit,
+
+      lease_start_date: request.proposed_lease_start_date,
+      lease_end_date: request.proposed_lease_end_date,
+      rent_due_day: lease.rent_due_day,
+
+      utilities_terms: lease.utilities_terms,
+      pet_terms: lease.pet_terms,
+      maintenance_terms: lease.maintenance_terms,
+      additional_terms: lease.additional_terms,
+      custom_sections: lease.custom_sections || [],
+
+      sent_to_tenant_at: now,
+      renewal_parent_lease_id: lease.id,
+      renewal_status: "renewal_lease_sent",
+
+      created_at: now,
+      updated_at: now,
+    };
+
+    const { data: newLease, error: createLeaseError } = await supabase
+      .from("leases")
+      .insert(renewalLeasePayload)
+      .select("id")
+      .single();
+
+    if (createLeaseError || !newLease) {
+      setMessage(createLeaseError?.message || "Could not create renewal lease.");
+      setCreatingLeaseId(null);
+      return;
+    }
+
+    const newLeaseId = newLease.id as string;
+
+    const { error: feeError } = await supabase.from("lease_fees").insert([
+      {
+        lease_id: newLeaseId,
+        user_id: lease.tenant_id,
+        payer_role: "tenant",
+        fee_type: "esign_fee",
+        amount_cents: 7500,
+        currency: "usd",
+        status: "unpaid",
+      },
+      {
+        lease_id: newLeaseId,
+        user_id: lease.landlord_id,
+        payer_role: "landlord",
+        fee_type: "esign_fee",
+        amount_cents: 7500,
+        currency: "usd",
+        status: "unpaid",
+      },
+    ]);
+
+    if (feeError) {
+      setMessage(
+        `Renewal lease was created, but fee records failed: ${feeError.message}`
+      );
+      setCreatingLeaseId(null);
+      await loadPage();
+      return;
+    }
+
+    const { error: requestUpdateError } = await supabase
+      .from("lease_renewal_requests")
+      .update({
+        status: "renewal_sent",
+        renewal_lease_id: newLeaseId,
+        renewal_sent_at: now,
+        updated_at: now,
+      })
+      .eq("id", request.id);
+
+    if (requestUpdateError) {
+      setMessage(requestUpdateError.message);
+      setCreatingLeaseId(null);
+      await loadPage();
+      return;
+    }
+
+    const { error: parentLeaseError } = await supabase
+      .from("leases")
+      .update({
+        renewal_status: "renewal_lease_sent",
+        updated_at: now,
+      })
+      .eq("id", lease.id);
+
+    if (parentLeaseError) {
+      setMessage(parentLeaseError.message);
+      setCreatingLeaseId(null);
+      await loadPage();
+      return;
+    }
+
+    await createNotification({
+      userId: lease.tenant_id,
+      title: "Renewal lease ready to sign",
+      message: `Your renewal lease for ${
+        lease.property_address || "your rental"
+      } is ready to review and sign.`,
+      type: "lease_sent",
+      targetUrl: `/dashboard/tenant/leases/${newLeaseId}`,
+      dedupe: false,
+    });
+
+    setSuccessMessage("Renewal lease created and sent to tenant.");
+    setCreatingLeaseId(null);
+    await loadPage();
   }
 
   if (loading) {
@@ -344,8 +516,8 @@ export default function LandlordLeaseRenewalPage() {
             </h1>
 
             <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-              Ask the tenant for their plan, offer renewal terms, or record that
-              the lease will not be renewed.
+              Ask the tenant for their plan, offer renewal terms, or create the
+              updated renewal lease for e-signature.
             </p>
           </div>
 
@@ -515,9 +687,47 @@ export default function LandlordLeaseRenewalPage() {
                     )}
 
                     {request.proposed_monthly_rent && (
-                      <p className="mt-3 text-sm font-bold text-slate-500">
-                        Proposed rent: {formatMoney(request.proposed_monthly_rent)}
-                      </p>
+                      <div className="mt-3 rounded-2xl bg-[#f7f4ef] p-4">
+                        <p className="text-sm font-black text-slate-700">
+                          Proposed Terms
+                        </p>
+                        <p className="mt-2 text-sm font-bold text-slate-600">
+                          Rent: {formatMoney(request.proposed_monthly_rent)}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          Deposit:{" "}
+                          {formatMoney(request.proposed_security_deposit)}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          Dates:{" "}
+                          {request.proposed_lease_start_date || "No start"} to{" "}
+                          {request.proposed_lease_end_date || "No end"}
+                        </p>
+                      </div>
+                    )}
+
+                    {request.request_type === "landlord_offers_renewal" && (
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                        {request.renewal_lease_id ? (
+                          <Link
+                            href={`/dashboard/landlord/leases/${request.renewal_lease_id}`}
+                            className="rounded-full bg-green-700 px-5 py-3 text-center text-sm font-black text-white"
+                          >
+                            Open Created Renewal Lease
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => createRenewalLease(request)}
+                            disabled={creatingLeaseId === request.id}
+                            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60"
+                          >
+                            {creatingLeaseId === request.id
+                              ? "Creating..."
+                              : "Create Renewal Lease"}
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     <p className="mt-3 text-xs font-bold text-slate-500">
