@@ -4,6 +4,48 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
+
+type ScreeningStatus =
+  | "not_requested"
+  | "requested"
+  | "tenant_approved"
+  | "tenant_declined"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+type ScreeningRequest = {
+  id: string;
+  application_id: string;
+  property_id: string;
+  tenant_id: string;
+  landlord_id: string;
+  screening_type:
+    | "credit"
+    | "background"
+    | "credit_background"
+    | "income_verification"
+    | "custom";
+  status:
+    | "requested"
+    | "tenant_approved"
+    | "tenant_declined"
+    | "in_progress"
+    | "completed"
+    | "cancelled"
+    | "failed";
+  provider: string | null;
+  landlord_note: string | null;
+  tenant_consent_text: string | null;
+  tenant_consented_at: string | null;
+  tenant_declined_at: string | null;
+  requested_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 type ApplicationDetail = {
   id: string;
@@ -20,6 +62,10 @@ type ApplicationDetail = {
   message: string | null;
   status: string;
   created_at: string;
+
+  screening_status: ScreeningStatus | null;
+  latest_screening_request_id: string | null;
+
   properties: {
     id: string;
     title: string;
@@ -75,76 +121,126 @@ function statusBoxStyle(status: string) {
   return "bg-[#f7f4ef] text-slate-700 ring-slate-200";
 }
 
+function formatScreeningStatus(status: string | null | undefined) {
+  if (!status || status === "not_requested") return "Not Requested";
+  if (status === "requested") return "Consent Requested";
+  if (status === "tenant_approved") return "Approved by Tenant";
+  if (status === "tenant_declined") return "Declined by Tenant";
+  if (status === "in_progress") return "In Progress";
+  if (status === "completed") return "Completed";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "failed") return "Failed";
+
+  return status;
+}
+
+function formatScreeningType(type: string | null | undefined) {
+  if (!type) return "Credit & Background";
+  if (type === "credit") return "Credit Check";
+  if (type === "background") return "Background Check";
+  if (type === "credit_background") return "Credit & Background";
+  if (type === "income_verification") return "Income Verification";
+  if (type === "custom") return "Custom Screening";
+
+  return type;
+}
+
 export default function TenantApplicationDetailPage() {
   const params = useParams();
   const applicationId = params.id as string;
 
   const [loading, setLoading] = useState(true);
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
+  const [screeningRequest, setScreeningRequest] =
+    useState<ScreeningRequest | null>(null);
   const [message, setMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [startingConversation, setStartingConversation] = useState(false);
+  const [savingScreening, setSavingScreening] = useState(false);
 
   useEffect(() => {
-    async function loadApplication() {
-      setLoading(true);
+    loadApplication();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId]);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+  async function loadApplication() {
+    setLoading(true);
+    setMessage("");
+    setSuccessMessage("");
 
-      if (!user) {
-        setMessage("Please log in to view this application.");
-        setLoading(false);
-        return;
-      }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
-      const { data, error } = await supabase
-        .from("applications")
-        .select(
-          `
-          *,
-          properties (
-            id,
-            title,
-            monthly_rent,
-            city,
-            state,
-            landlord_id
-          )
-        `
-        )
-        .eq("id", applicationId)
-        .single();
-
-      if (error || !data) {
-        setMessage("Application not found.");
-        setLoading(false);
-        return;
-      }
-
-      const app = data as ApplicationDetail;
-
-      const isAdmin = profile?.role === "admin";
-      const isOwner = app.tenant_id === user.id;
-
-      if (!isAdmin && !isOwner) {
-        setMessage("You do not have permission to view this application.");
-        setLoading(false);
-        return;
-      }
-
-      setApplication(app);
+    if (!user) {
+      setMessage("Please log in to view this application.");
       setLoading(false);
+      return;
     }
 
-    loadApplication();
-  }, [applicationId]);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    const { data, error } = await supabase
+      .from("applications")
+      .select(
+        `
+        *,
+        properties (
+          id,
+          title,
+          monthly_rent,
+          city,
+          state,
+          landlord_id
+        )
+      `
+      )
+      .eq("id", applicationId)
+      .single();
+
+    if (error || !data) {
+      setMessage("Application not found.");
+      setLoading(false);
+      return;
+    }
+
+    const app = data as ApplicationDetail;
+
+    const isAdmin = profile?.role === "admin";
+    const isOwner = app.tenant_id === user.id;
+
+    if (!isAdmin && !isOwner) {
+      setMessage("You do not have permission to view this application.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: screeningRows, error: screeningError } = await supabase
+      .from("screening_requests")
+      .select("*")
+      .eq("application_id", app.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (screeningError) {
+      setMessage(screeningError.message);
+      setLoading(false);
+      return;
+    }
+
+    const latestScreening =
+      screeningRows && screeningRows.length > 0
+        ? ((screeningRows[0] as unknown) as ScreeningRequest)
+        : null;
+
+    setApplication(app);
+    setScreeningRequest(latestScreening);
+    setLoading(false);
+  }
 
   async function startConversation() {
     if (!application) return;
@@ -161,6 +257,7 @@ export default function TenantApplicationDetailPage() {
 
     setStartingConversation(true);
     setMessage("");
+    setSuccessMessage("");
 
     const { data: existingConversation, error: existingError } = await supabase
       .from("conversations")
@@ -206,6 +303,152 @@ export default function TenantApplicationDetailPage() {
     window.location.href = `/dashboard/messages/${newConversation.id}`;
   }
 
+  async function approveScreening() {
+    if (!application || !screeningRequest) return;
+
+    const confirmed = window.confirm(
+      "Approve this screening request? This is currently a placeholder consent flow. Later this can connect to TransUnion or another provider."
+    );
+
+    if (!confirmed) return;
+
+    setSavingScreening(true);
+    setMessage("");
+    setSuccessMessage("");
+
+    const consentText =
+      "Tenant approved the landlord's request for rental screening through Keylo. This is currently a placeholder consent record and does not yet run a live TransUnion report.";
+
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("screening_requests")
+      .update({
+        status: "tenant_approved",
+        tenant_consent_text: consentText,
+        tenant_consented_at: now,
+        updated_at: now,
+      })
+      .eq("id", screeningRequest.id);
+
+    if (error) {
+      setMessage(error.message);
+      setSavingScreening(false);
+      return;
+    }
+
+    const { error: appError } = await supabase
+      .from("applications")
+      .update({
+        screening_status: "tenant_approved",
+        latest_screening_request_id: screeningRequest.id,
+      })
+      .eq("id", application.id);
+
+    if (appError) {
+      setMessage(appError.message);
+      setSavingScreening(false);
+      return;
+    }
+
+    if (application.properties?.landlord_id) {
+      await createNotification({
+        userId: application.properties.landlord_id,
+        title: "Screening approved",
+        message: `${application.first_name} ${application.last_name} approved the screening request.`,
+        type: "screening_update",
+        targetUrl: `/dashboard/landlord/applications/${application.id}`,
+        dedupe: false,
+      });
+    }
+
+    setScreeningRequest({
+      ...screeningRequest,
+      status: "tenant_approved",
+      tenant_consent_text: consentText,
+      tenant_consented_at: now,
+      updated_at: now,
+    });
+
+    setApplication({
+      ...application,
+      screening_status: "tenant_approved",
+      latest_screening_request_id: screeningRequest.id,
+    });
+
+    setSuccessMessage("Screening consent approved.");
+    setSavingScreening(false);
+  }
+
+  async function declineScreening() {
+    if (!application || !screeningRequest) return;
+
+    const confirmed = window.confirm("Decline this screening request?");
+    if (!confirmed) return;
+
+    setSavingScreening(true);
+    setMessage("");
+    setSuccessMessage("");
+
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("screening_requests")
+      .update({
+        status: "tenant_declined",
+        tenant_declined_at: now,
+        updated_at: now,
+      })
+      .eq("id", screeningRequest.id);
+
+    if (error) {
+      setMessage(error.message);
+      setSavingScreening(false);
+      return;
+    }
+
+    const { error: appError } = await supabase
+      .from("applications")
+      .update({
+        screening_status: "tenant_declined",
+        latest_screening_request_id: screeningRequest.id,
+      })
+      .eq("id", application.id);
+
+    if (appError) {
+      setMessage(appError.message);
+      setSavingScreening(false);
+      return;
+    }
+
+    if (application.properties?.landlord_id) {
+      await createNotification({
+        userId: application.properties.landlord_id,
+        title: "Screening declined",
+        message: `${application.first_name} ${application.last_name} declined the screening request.`,
+        type: "screening_update",
+        targetUrl: `/dashboard/landlord/applications/${application.id}`,
+        dedupe: false,
+      });
+    }
+
+    setScreeningRequest({
+      ...screeningRequest,
+      status: "tenant_declined",
+      tenant_declined_at: now,
+      updated_at: now,
+    });
+
+    setApplication({
+      ...application,
+      screening_status: "tenant_declined",
+      latest_screening_request_id: screeningRequest.id,
+    });
+
+    setSuccessMessage("Screening request declined.");
+    setSavingScreening(false);
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
@@ -234,6 +477,10 @@ export default function TenantApplicationDetailPage() {
       </main>
     );
   }
+
+  const canRespondToScreening =
+    screeningRequest?.status === "requested" ||
+    screeningRequest?.status === "in_progress";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -269,14 +516,29 @@ export default function TenantApplicationDetailPage() {
               </p>
             </div>
 
-            <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
-              {formatStatus(application.status)}
-            </span>
+            <div className="flex flex-wrap gap-3">
+              <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                {formatStatus(application.status)}
+              </span>
+
+              <span className="w-fit rounded-full bg-yellow-50 px-4 py-2 text-sm font-black text-yellow-700">
+                Screening:{" "}
+                {formatScreeningStatus(
+                  screeningRequest?.status || application.screening_status
+                )}
+              </span>
+            </div>
           </div>
 
           {message && (
-            <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-red-700">
+            <div className="mt-6 rounded-2xl bg-red-50 px-5 py-4 font-bold text-red-700 ring-1 ring-red-200">
               {message}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mt-6 rounded-2xl bg-green-50 px-5 py-4 font-bold text-green-700 ring-1 ring-green-200">
+              {successMessage}
             </div>
           )}
 
@@ -288,88 +550,176 @@ export default function TenantApplicationDetailPage() {
             {statusMessage(application.status)}
           </div>
 
+          <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
+            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+                  Screening
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  Rental Screening Consent
+                </h2>
+
+                <p className="mt-3 leading-7 text-slate-600">
+                  This is the placeholder consent flow for future TransUnion or
+                  other screening provider integration. No live credit or
+                  background report is being pulled yet.
+                </p>
+              </div>
+
+              <span className="w-fit rounded-full bg-white px-4 py-2 text-sm font-black text-slate-700">
+                {formatScreeningStatus(
+                  screeningRequest?.status || application.screening_status
+                )}
+              </span>
+            </div>
+
+            {screeningRequest ? (
+              <div className="mt-5 rounded-3xl bg-white p-5">
+                <div className="grid gap-5 md:grid-cols-3">
+                  <InfoCard
+                    label="Type"
+                    value={formatScreeningType(
+                      screeningRequest.screening_type
+                    )}
+                  />
+
+                  <InfoCard
+                    label="Provider"
+                    value={screeningRequest.provider || "Manual placeholder"}
+                  />
+
+                  <InfoCard
+                    label="Requested"
+                    value={new Date(
+                      screeningRequest.requested_at
+                    ).toLocaleDateString()}
+                  />
+                </div>
+
+                {screeningRequest.landlord_note && (
+                  <div className="mt-5 rounded-2xl bg-[#f7f4ef] p-4">
+                    <p className="text-sm font-black text-slate-500">
+                      Landlord Note
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap leading-7 text-slate-700">
+                      {screeningRequest.landlord_note}
+                    </p>
+                  </div>
+                )}
+
+                {canRespondToScreening && (
+                  <div className="mt-5 rounded-2xl bg-yellow-50 p-5 ring-1 ring-yellow-200">
+                    <h3 className="text-xl font-black text-yellow-900">
+                      Consent Requested
+                    </h3>
+
+                    <p className="mt-3 leading-7 text-yellow-900">
+                      By approving, you are giving consent in Keylo for the
+                      landlord to continue with the screening process. This does
+                      not yet run a live TransUnion report.
+                    </p>
+
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={approveScreening}
+                        disabled={savingScreening}
+                        className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+                      >
+                        {savingScreening
+                          ? "Saving..."
+                          : "Approve Screening"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={declineScreening}
+                        disabled={savingScreening}
+                        className="rounded-full border border-red-200 bg-red-50 px-6 py-3 font-black text-red-700 disabled:opacity-60"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {screeningRequest.tenant_consented_at && (
+                  <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800 ring-1 ring-green-200">
+                    <p className="font-black">You approved screening.</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Approved{" "}
+                      {new Date(
+                        screeningRequest.tenant_consented_at
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+
+                {screeningRequest.tenant_declined_at && (
+                  <div className="mt-5 rounded-2xl bg-red-50 p-4 text-red-800 ring-1 ring-red-200">
+                    <p className="font-black">You declined screening.</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Declined{" "}
+                      {new Date(
+                        screeningRequest.tenant_declined_at
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-3xl bg-white p-5">
+                <p className="font-bold text-slate-600">
+                  No screening has been requested for this application yet.
+                </p>
+              </div>
+            )}
+          </section>
+
           <div className="mt-8 grid gap-5 md:grid-cols-2">
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Applicant
-              </p>
+            <InfoCard
+              label="Applicant"
+              value={`${application.first_name} ${application.last_name}`}
+            />
 
-              <p className="mt-2 text-xl font-black">
-                {application.first_name} {application.last_name}
-              </p>
-            </div>
+            <InfoCard label="Email" value={application.email} />
 
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Email
-              </p>
+            <InfoCard
+              label="Phone"
+              value={application.phone || "Not provided"}
+            />
 
-              <p className="mt-2 break-words text-xl font-black">
-                {application.email}
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Phone
-              </p>
-
-              <p className="mt-2 text-xl font-black">
-                {application.phone || "Not provided"}
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Monthly Income
-              </p>
-
-              <p className="mt-2 text-xl font-black">
-                {application.monthly_income
+            <InfoCard
+              label="Monthly Income"
+              value={
+                application.monthly_income
                   ? `$${application.monthly_income.toLocaleString()}`
-                  : "Not provided"}
-              </p>
-            </div>
+                  : "Not provided"
+              }
+            />
 
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Desired Move-In
-              </p>
+            <InfoCard
+              label="Desired Move-In"
+              value={application.move_in_date || "Not provided"}
+            />
 
-              <p className="mt-2 text-xl font-black">
-                {application.move_in_date || "Not provided"}
-              </p>
-            </div>
+            <InfoCard
+              label="Household Size"
+              value={
+                application.household_size
+                  ? String(application.household_size)
+                  : "Not provided"
+              }
+            />
 
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Household Size
-              </p>
+            <InfoCard
+              label="Pets"
+              value={application.pets || "Not provided"}
+            />
 
-              <p className="mt-2 text-xl font-black">
-                {application.household_size || "Not provided"}
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Pets
-              </p>
-
-              <p className="mt-2 text-xl font-black">
-                {application.pets || "Not provided"}
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-5">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-                Status
-              </p>
-
-              <p className="mt-2 text-xl font-black">
-                {formatStatus(application.status)}
-              </p>
-            </div>
+            <InfoCard label="Status" value={formatStatus(application.status)} />
           </div>
 
           <div className="mt-6 rounded-3xl bg-[#f7f4ef] p-6">
@@ -409,5 +759,17 @@ export default function TenantApplicationDetailPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-3xl bg-[#f7f4ef] p-5">
+      <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+        {label}
+      </p>
+
+      <p className="mt-2 break-words text-xl font-black">{value}</p>
+    </div>
   );
 }
