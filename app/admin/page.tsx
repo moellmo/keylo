@@ -129,6 +129,12 @@ type LeaseRenewalRequest = {
   created_at: string;
 };
 
+type ContactMessage = {
+  id: string;
+  status: "new" | "reviewed" | "closed";
+  created_at: string;
+};
+
 function formatMoneyFromCents(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -279,6 +285,7 @@ export default function AdminPage() {
   const [leaseRenewalRequests, setLeaseRenewalRequests] = useState<
     LeaseRenewalRequest[]
   >([]);
+  const [contactMessages, setContactMessages] = useState<ContactMessage[]>([]);
 
   useEffect(() => {
     loadAdmin();
@@ -476,6 +483,18 @@ export default function AdminPage() {
       return;
     }
 
+    const { data: contactRows, error: contactError } = await supabase
+      .from("contact_messages")
+      .select("id, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (contactError) {
+      setMessage(`Contact messages error: ${contactError.message}`);
+      setLoading(false);
+      return;
+    }
+
     setProfiles((profileRows || []) as Profile[]);
     setProperties((propertyRows || []) as Property[]);
     setApplications((applicationRows || []) as unknown as Application[]);
@@ -487,6 +506,7 @@ export default function AdminPage() {
       (verificationRows || []) as LandlordVerification[]
     );
     setLeaseRenewalRequests((renewalRows || []) as LeaseRenewalRequest[]);
+    setContactMessages((contactRows || []) as ContactMessage[]);
 
     setLoading(false);
   }
@@ -576,6 +596,10 @@ export default function AdminPage() {
       (request) => request.status === "renewal_signed"
     );
 
+    const newContactMessages = contactMessages.filter(
+      (contactMessage) => contactMessage.status === "new"
+    );
+
     return {
       pendingListings,
       rejectedListings,
@@ -594,9 +618,11 @@ export default function AdminPage() {
       renewalOffersSent,
       renewalLeasesSent,
       renewalCompleted,
+      newContactMessages,
     };
   }, [
     applications,
+    contactMessages,
     landlordVerifications,
     leaseRenewalRequests,
     leases,
@@ -625,9 +651,11 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading admin dashboard...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading admin dashboard...
+          </h1>
         </div>
       </main>
     );
@@ -636,7 +664,7 @@ export default function AdminPage() {
   if (!allowed) {
     return (
       <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-        <div className="mx-auto max-w-3xl px-6 py-10">
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
           <div className="rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
             <h1 className="text-3xl font-black">Admin access required</h1>
             <p className="mt-3 text-slate-600">{message}</p>
@@ -662,48 +690,50 @@ export default function AdminPage() {
     dashboardData.pendingApplications === 0 &&
     dashboardData.leasesEndingSoon.length === 0 &&
     leaseRenewalRequests.length === 0 &&
-    dashboardData.unpaidBalance === 0;
+    dashboardData.unpaidBalance === 0 &&
+    dashboardData.newContactMessages.length === 0;
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <Link href="/" className="text-sm font-bold text-slate-600">
-              ← Back to Home
-            </Link>
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
+          <Link href="/" className="text-sm font-bold text-slate-600">
+            ← Back to Home
+          </Link>
 
-            <h1 className="mt-4 text-5xl font-black tracking-tight">
-              Admin Dashboard
-            </h1>
+          <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Admin
+              </p>
 
-            <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
-              Review users, listings, applications, leases, payments,
-              maintenance, screenings, renewals, and verification across Keylo.
-            </p>
-          </div>
+              <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
+                Dashboard
+              </h1>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Link
-              href="/admin/landlord-verifications"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
-            >
-              Landlord Verifications
-            </Link>
-
-            <Link
-              href="/admin/email-logs"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
-            >
-              Email Logs
-            </Link>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+                Review users, listings, applications, leases, payments,
+                maintenance, screenings, renewals, verification, and contact
+                messages across Keylo.
+              </p>
+            </div>
 
             <Link
               href="/dashboard"
-              className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+              className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
             >
               My Dashboard
             </Link>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <QuickAdminLink
+              href="/admin/landlord-verifications"
+              label="Landlord Verifications"
+            />
+            <QuickAdminLink href="/admin/contact-messages" label="Contact Messages" />
+            <QuickAdminLink href="/admin/email-logs" label="Email Logs" />
+            <QuickAdminLink href="/admin/listings" label="Listings" />
           </div>
         </div>
 
@@ -713,7 +743,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard title="Users" value={profiles.length} href="/admin/users" />
           <StatCard
             title="Listings"
@@ -747,9 +777,9 @@ export default function AdminPage() {
             href="/admin/payments"
           />
           <StatCard
-            title="Pending Listings"
-            value={dashboardData.pendingListings.length}
-            href="/admin/listings"
+            title="Contact"
+            value={contactMessages.length}
+            href="/admin/contact-messages"
           />
           <StatCard
             title="Unpaid"
@@ -758,7 +788,7 @@ export default function AdminPage() {
           />
         </section>
 
-        <section className="mt-8 rounded-[2rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <section className="mt-6 rounded-[2rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
           <div className="flex gap-2 overflow-x-auto p-2">
             {tabs.map((tab) => (
               <button
@@ -782,14 +812,27 @@ export default function AdminPage() {
 
         {activeTab === "overview" && (
           <>
-            <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Admin Attention
               </p>
 
-              <h2 className="mt-2 text-3xl font-black">What needs review</h2>
+              <h2 className="mt-2 text-2xl font-black sm:text-3xl">
+                What needs review
+              </h2>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {dashboardData.newContactMessages.length > 0 && (
+                  <ActionCard
+                    title="Contact messages"
+                    text={`${dashboardData.newContactMessages.length} new contact message${
+                      dashboardData.newContactMessages.length === 1 ? "" : "s"
+                    } need review.`}
+                    href="/admin/contact-messages"
+                    button="Open Messages"
+                  />
+                )}
+
                 {dashboardData.pendingListings.length > 0 && (
                   <ActionCard
                     title="Pending listings"
@@ -943,17 +986,17 @@ export default function AdminPage() {
           <>
             <section
               id="renewals"
-              className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+              className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
             >
               <SectionTitleWithButton
                 title="Renewals & Move-Outs"
-                text="Track tenant renewal requests, move-out plans, landlord offers, and completed renewal leases. Use the full renewals page for search, filters, and pagination."
+                text="Track tenant renewal requests, move-out plans, landlord offers, and completed renewal leases."
                 badge={`${leaseRenewalRequests.length} updates`}
                 buttonText="View All Renewals"
                 href="/admin/renewals"
               />
 
-              <div className="grid gap-5 border-b border-slate-200 p-6 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-4 border-b border-slate-200 p-5 sm:p-6 md:grid-cols-2 xl:grid-cols-5">
                 <StatCard
                   title="Want to Renew"
                   value={dashboardData.tenantsWantToRenew.length}
@@ -990,7 +1033,7 @@ export default function AdminPage() {
               )}
             </section>
 
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+            <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
               <SectionHeader
                 title="Leases Ending Soon"
                 text="Leases ending within the next 90 days."
@@ -1017,7 +1060,7 @@ export default function AdminPage() {
 
         {activeTab === "listings" && (
           <>
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+            <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
               <SectionHeader
                 title="Pending Listing Approvals"
                 text="Review new landlord listings before they go live."
@@ -1043,10 +1086,10 @@ export default function AdminPage() {
               )}
             </section>
 
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+            <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
               <SectionTitleWithButton
                 title="Recent Listings"
-                text="Showing latest 25 listings. Use the full listings page for search, status filters, and pagination."
+                text="Showing latest 25 listings."
                 badge={`${properties.length} loaded`}
                 buttonText="View All Listings"
                 href="/admin/listings"
@@ -1070,10 +1113,10 @@ export default function AdminPage() {
         )}
 
         {activeTab === "applications" && (
-          <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
             <SectionTitleWithButton
               title="Recent Applications"
-              text="Showing latest 25 applications. Use the full applications page for search, status filters, screening filters, and pagination."
+              text="Showing latest 25 applications."
               badge={`${applications.length} loaded`}
               buttonText="View All Applications"
               href="/admin/applications"
@@ -1099,12 +1142,12 @@ export default function AdminPage() {
 
         {activeTab === "operations" && (
           <>
-            <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Operations
               </p>
 
-              <h2 className="mt-2 text-3xl font-black">
+              <h2 className="mt-2 text-2xl font-black sm:text-3xl">
                 Payments, Maintenance & Screenings
               </h2>
 
@@ -1112,7 +1155,7 @@ export default function AdminPage() {
                 Use these full admin pages for search, filters, and pagination.
               </p>
 
-              <div className="mt-6 grid gap-5 md:grid-cols-3">
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <OpsCard
                   title="Payments"
                   count={rentCharges.length}
@@ -1139,7 +1182,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="mt-8 grid gap-5 md:grid-cols-3">
+            <section className="mt-6 grid gap-4 md:grid-cols-3">
               <StatCard
                 title="Unpaid Balance"
                 value={formatMoneyFromCents(dashboardData.unpaidBalance)}
@@ -1160,10 +1203,10 @@ export default function AdminPage() {
         )}
 
         {activeTab === "leases" && (
-          <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
             <SectionTitleWithButton
               title="Recent Leases"
-              text="Showing latest 25 leases. Use the full leases page for search, lease status filters, renewal filters, and pagination."
+              text="Showing latest 25 leases."
               badge={`${dashboardData.activeLeases.length} active`}
               buttonText="View All Leases"
               href="/admin/leases"
@@ -1185,10 +1228,10 @@ export default function AdminPage() {
         )}
 
         {activeTab === "users" && (
-          <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
             <SectionTitleWithButton
               title="Users"
-              text="Showing latest 50 users. Use the full users page for search, filters, and pagination."
+              text="Showing latest 50 users."
               badge={`${profiles.length} loaded`}
               buttonText="View All Users"
               href="/admin/users"
@@ -1210,6 +1253,17 @@ export default function AdminPage() {
   );
 }
 
+function QuickAdminLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-2xl border border-slate-300 bg-white px-4 py-4 text-center text-sm font-black text-slate-950 shadow-sm"
+    >
+      {label}
+    </Link>
+  );
+}
+
 function StatCard({
   title,
   value,
@@ -1221,10 +1275,10 @@ function StatCard({
 }) {
   const content = (
     <>
-      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 sm:text-sm">
         {title}
       </p>
-      <p className="mt-3 text-4xl font-black">{value}</p>
+      <p className="mt-3 text-3xl font-black sm:text-4xl">{value}</p>
     </>
   );
 
@@ -1232,7 +1286,7 @@ function StatCard({
     return (
       <Link
         href={href}
-        className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+        className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md sm:p-6"
       >
         {content}
       </Link>
@@ -1240,7 +1294,7 @@ function StatCard({
   }
 
   return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+    <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
       {content}
     </div>
   );
@@ -1261,10 +1315,8 @@ function ActionCard({
 }) {
   return (
     <div className="rounded-3xl bg-[#f7f4ef] p-5">
-      <h3 className="text-xl font-black">{title}</h3>
-      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-600">
-        {text}
-      </p>
+      <h3 className="text-lg font-black sm:text-xl">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
 
       {href ? (
         <Link
@@ -1296,8 +1348,8 @@ function SectionHeader({
   badge?: string;
 }) {
   return (
-    <div className="border-b border-slate-200 p-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div className="border-b border-slate-200 p-5 sm:p-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-2xl font-black">{title}</h2>
           <p className="mt-1 text-sm font-bold text-slate-500">{text}</p>
@@ -1327,7 +1379,7 @@ function SectionTitleWithButton({
   href: string;
 }) {
   return (
-    <div className="border-b border-slate-200 p-6">
+    <div className="border-b border-slate-200 p-5 sm:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-2xl font-black">{title}</h2>
@@ -1361,8 +1413,8 @@ function PreviewSection({
   children: ReactNode;
 }) {
   return (
-    <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-      <h2 className="text-3xl font-black">{title}</h2>
+    <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+      <h2 className="text-2xl font-black sm:text-3xl">{title}</h2>
       <p className="mt-2 text-slate-600">{text}</p>
       <div className="mt-6">{children}</div>
     </section>
@@ -1370,7 +1422,7 @@ function PreviewSection({
 }
 
 function PreviewGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{children}</div>;
+  return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{children}</div>;
 }
 
 function MiniPreview({
@@ -1388,12 +1440,12 @@ function MiniPreview({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-3xl bg-[#f7f4ef] p-6 text-left transition hover:bg-slate-100"
+      className="rounded-3xl bg-[#f7f4ef] p-5 text-left transition hover:bg-slate-100 sm:p-6"
     >
-      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 sm:text-sm">
         {title}
       </p>
-      <p className="mt-3 text-4xl font-black">{count}</p>
+      <p className="mt-3 text-3xl font-black sm:text-4xl">{count}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
     </button>
   );
@@ -1415,15 +1467,15 @@ function OpsCard({
   return (
     <Link
       href={href}
-      className="rounded-3xl bg-[#f7f4ef] p-6 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md"
+      className="rounded-3xl bg-[#f7f4ef] p-5 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md sm:p-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 sm:text-sm">
             {title}
           </p>
 
-          <p className="mt-3 text-4xl font-black">{count}</p>
+          <p className="mt-3 text-3xl font-black sm:text-4xl">{count}</p>
         </div>
 
         <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
@@ -1450,10 +1502,10 @@ function ListingRow({
   pending?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">{property.title}</h3>
+          <h3 className="text-lg font-black sm:text-xl">{property.title}</h3>
 
           <span
             className={`rounded-full px-3 py-1 text-xs font-black ${listingStatusClass(
@@ -1480,7 +1532,7 @@ function ListingRow({
         )}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+      <div className="grid gap-3 sm:flex sm:flex-row sm:flex-wrap">
         <Link
           href={`/admin/listings/${property.id}/preview`}
           className="rounded-full border border-slate-300 bg-white px-4 py-2 text-center text-sm font-black"
@@ -1534,10 +1586,10 @@ function ListingRow({
 
 function RenewalRow({ request }: { request: LeaseRenewalRequest }) {
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
+          <h3 className="text-lg font-black sm:text-xl">
             {formatRenewalType(request.request_type)}
           </h3>
 
@@ -1587,7 +1639,7 @@ function RenewalRow({ request }: { request: LeaseRenewalRequest }) {
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="grid gap-3 sm:flex sm:flex-row">
         <Link
           href={`/dashboard/landlord/leases/${request.lease_id}/renewal`}
           className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
@@ -1600,7 +1652,7 @@ function RenewalRow({ request }: { request: LeaseRenewalRequest }) {
             href={`/dashboard/landlord/leases/${request.renewal_lease_id}`}
             className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
           >
-            Open Renewal Lease
+            Renewal Lease
           </Link>
         ) : (
           <Link
@@ -1619,10 +1671,10 @@ function LeaseEndingSoonRow({ lease }: { lease: Lease }) {
   const daysUntilEnd = getDaysUntilLeaseEnds(lease.lease_end_date);
 
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
+          <h3 className="text-lg font-black sm:text-xl">
             {lease.property_address || "Lease Agreement"}
           </h3>
 
@@ -1654,7 +1706,7 @@ function LeaseEndingSoonRow({ lease }: { lease: Lease }) {
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="grid gap-3 sm:flex sm:flex-row">
         <Link
           href={`/dashboard/landlord/leases/${lease.id}/renewal`}
           className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
@@ -1677,10 +1729,10 @@ function ApplicationRow({ application }: { application: Application }) {
   const property = getApplicationProperty(application);
 
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
+          <h3 className="text-lg font-black sm:text-xl">
             {application.first_name} {application.last_name}
           </h3>
 
@@ -1716,10 +1768,10 @@ function ApplicationRow({ application }: { application: Application }) {
 
 function LeaseRow({ lease }: { lease: Lease }) {
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
+          <h3 className="text-lg font-black sm:text-xl">
             Lease for {lease.tenant_name || "Tenant"}
           </h3>
 
@@ -1746,7 +1798,7 @@ function LeaseRow({ lease }: { lease: Lease }) {
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="grid gap-3 sm:flex sm:flex-row">
         <Link
           href={`/dashboard/landlord/leases/${lease.id}/renewal`}
           className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
@@ -1767,9 +1819,9 @@ function LeaseRow({ lease }: { lease: Lease }) {
 
 function UserRow({ profile }: { profile: Profile }) {
   return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
-        <h3 className="text-xl font-black">
+        <h3 className="text-lg font-black sm:text-xl">
           {profile.full_name || "Unnamed User"}
         </h3>
 
