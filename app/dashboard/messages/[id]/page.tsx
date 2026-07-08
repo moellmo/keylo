@@ -5,13 +5,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-
 type Conversation = {
   id: string;
   application_id: string | null;
   property_id: string | null;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   subject: string | null;
   last_message: string | null;
   last_message_at: string | null;
@@ -49,12 +49,21 @@ type Profile = {
   email: string | null;
 };
 
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
 function getProperty(conversation: Conversation) {
   if (Array.isArray(conversation.properties)) {
     return conversation.properties[0] || null;
   }
 
   return conversation.properties;
+}
+
+function canUseCompanyMessages(role: string) {
+  return role === "owner" || role === "admin" || role === "manager";
 }
 
 export default function MessageThreadPage() {
@@ -72,9 +81,11 @@ export default function MessageThreadPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [body, setBody] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
 
   useEffect(() => {
     loadThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   useEffect(() => {
@@ -83,6 +94,7 @@ export default function MessageThreadPage() {
 
   async function loadThread() {
     setLoading(true);
+    setMessage("");
 
     const {
       data: { user },
@@ -139,9 +151,40 @@ export default function MessageThreadPage() {
 
     const isAdmin = profileRow.role === "admin";
     const isTenant = conversationData.tenant_id === user.id;
-    const isLandlord = conversationData.landlord_id === user.id;
+    const isOriginalLandlord = conversationData.landlord_id === user.id;
 
-    if (!isAdmin && !isTenant && !isLandlord) {
+    let isCompanyMessenger = false;
+    let currentCompanyRole = "";
+
+    if (
+      !isAdmin &&
+      !isTenant &&
+      !isOriginalLandlord &&
+      conversationData.landlord_company_id
+    ) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", conversationData.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        setMessage(membershipError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyMessenger =
+        !!companyMembership && canUseCompanyMessages(companyMembership.role);
+    }
+
+    if (!isAdmin && !isTenant && !isOriginalLandlord && !isCompanyMessenger) {
       setMessage("You do not have permission to view this conversation.");
       setAllowed(false);
       setLoading(false);
@@ -167,9 +210,10 @@ export default function MessageThreadPage() {
       .eq("conversation_id", conversationId)
       .eq("recipient_id", user.id);
 
-      window.dispatchEvent(new Event("keylo-messages-read"));
+    window.dispatchEvent(new Event("keylo-messages-read"));
 
     setConversation(conversationData);
+    setCompanyRole(currentCompanyRole);
     setMessages((messageRows || []) as Message[]);
     setAllowed(true);
     setLoading(false);
@@ -206,7 +250,7 @@ export default function MessageThreadPage() {
       return;
     }
 
-    await supabase
+    const { error: conversationUpdateError } = await supabase
       .from("conversations")
       .update({
         last_message: cleanBody,
@@ -215,6 +259,12 @@ export default function MessageThreadPage() {
       })
       .eq("id", conversation.id);
 
+    if (conversationUpdateError) {
+      setMessage(conversationUpdateError.message);
+      setSending(false);
+      return;
+    }
+
     setBody("");
     setSending(false);
     await loadThread();
@@ -222,9 +272,11 @@ export default function MessageThreadPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading messages...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading messages...
+          </h1>
         </div>
       </main>
     );
@@ -232,7 +284,7 @@ export default function MessageThreadPage() {
 
   if (!allowed || !conversation) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Messages unavailable</h1>
 
@@ -250,27 +302,28 @@ export default function MessageThreadPage() {
   }
 
   const property = getProperty(conversation);
+
   const backHref =
     profile?.role === "landlord"
       ? "/dashboard/landlord/messages"
       : profile?.role === "admin"
-      ? "/admin"
-      : "/dashboard/tenant/messages";
+        ? "/admin"
+        : "/dashboard/tenant/messages";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
         <Link href={backHref} className="text-sm font-bold text-slate-600">
           ← Back to Messages
         </Link>
 
         <div className="mt-6 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 p-6">
+          <div className="border-b border-slate-200 p-5 sm:p-6">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
               Keylo Messages
             </p>
 
-            <h1 className="mt-3 text-4xl font-black tracking-tight">
+            <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
               {conversation.subject || property?.title || "Conversation"}
             </h1>
 
@@ -282,15 +335,21 @@ export default function MessageThreadPage() {
                   : ""}
               </p>
             )}
+
+            {companyRole && (
+              <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                Company role: {companyRole}
+              </p>
+            )}
           </div>
 
           {message && (
-            <div className="mx-6 mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-slate-800">
+            <div className="mx-5 mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-slate-800 sm:mx-6">
               {message}
             </div>
           )}
 
-          <div className="max-h-[520px] space-y-4 overflow-y-auto bg-[#f7f4ef] p-6">
+          <div className="max-h-[520px] space-y-4 overflow-y-auto bg-[#f7f4ef] p-4 sm:p-6">
             {messages.length > 0 ? (
               messages.map((item) => {
                 const isMine = item.sender_id === userId;
@@ -298,7 +357,9 @@ export default function MessageThreadPage() {
                 return (
                   <div
                     key={item.id}
-                    className={`flex ${isMine ? "justify-end" : "justify-start"}`}
+                    className={`flex ${
+                      isMine ? "justify-end" : "justify-start"
+                    }`}
                   >
                     <div
                       className={`max-w-[80%] rounded-3xl px-5 py-4 ${
@@ -334,7 +395,7 @@ export default function MessageThreadPage() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-slate-200 p-6">
+          <div className="border-t border-slate-200 p-5 sm:p-6">
             <label className="block">
               <span className="mb-2 block text-sm font-black text-slate-700">
                 Message
