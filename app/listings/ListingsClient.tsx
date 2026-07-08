@@ -180,11 +180,24 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
       const listingBeds = normalizeValue(listing.bedrooms);
       const listingBaths = normalizeValue(listing.bathrooms);
 
-      const matchesBeds =
-        !beds ||
-        beds === "any" ||
-        listingBeds === beds ||
-        (beds === "4+" && Number(listingBeds) >= 4);
+      const selectedBedNumber =
+  beds && beds !== "any" && beds !== "Studio"
+    ? Number(beds.replace("+", ""))
+    : null;
+
+const listingBedNumber =
+  listingBeds && listingBeds.toLowerCase() !== "studio"
+    ? Number(listingBeds.replace("+", ""))
+    : null;
+
+const matchesBeds =
+  !beds ||
+  beds === "any" ||
+  (beds === "Studio" && listingBeds.toLowerCase() === "studio") ||
+  (selectedBedNumber !== null &&
+    listingBedNumber !== null &&
+    Number.isFinite(listingBedNumber) &&
+    listingBedNumber >= selectedBedNumber);
 
       const selectedBathNumber = Number(baths.replace("+", ""));
 
