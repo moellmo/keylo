@@ -80,7 +80,10 @@ function canManageTeam(role: MembershipRole | null) {
   return role === "owner" || role === "admin";
 }
 
-function canChangeRole(currentRole: MembershipRole | null, targetRole: MembershipRole) {
+function canChangeRole(
+  currentRole: MembershipRole | null,
+  targetRole: MembershipRole
+) {
   if (targetRole === "owner") return false;
   return currentRole === "owner" || currentRole === "admin";
 }
@@ -97,8 +100,12 @@ function roleLabel(role: string) {
 
 function roleDescription(role: string) {
   if (role === "owner") return "Full company access and ownership.";
-  if (role === "admin") return "Manage company, team, listings, leases, and operations.";
-  if (role === "manager") return "Manage listings, applications, leases, and maintenance.";
+  if (role === "admin") {
+    return "Manage company, team, listings, leases, and operations.";
+  }
+  if (role === "manager") {
+    return "Manage listings, applications, leases, and maintenance.";
+  }
   if (role === "maintenance") return "View and manage maintenance requests.";
   if (role === "accounting") return "View and manage payments and rent charges.";
   if (role === "viewer") return "Read-only access.";
@@ -128,11 +135,13 @@ export default function LandlordTeamPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] =
     useState<Exclude<MembershipRole, "owner">>("manager");
+  const [siteOrigin, setSiteOrigin] = useState("");
 
   const [message, setMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
+    setSiteOrigin(window.location.origin);
     loadTeam();
   }, []);
 
@@ -160,7 +169,10 @@ export default function LandlordTeamPage() {
       .eq("id", user.id)
       .single();
 
-    if (profileError || (profile?.role !== "landlord" && profile?.role !== "admin")) {
+    if (
+      profileError ||
+      (profile?.role !== "landlord" && profile?.role !== "admin")
+    ) {
       setAllowed(false);
       setMessage("You must be logged in as a landlord to manage a team.");
       setLoading(false);
@@ -238,7 +250,9 @@ export default function LandlordTeamPage() {
 
     const { data: inviteRows, error: invitesError } = await supabase
       .from("landlord_company_invites")
-      .select("id, company_id, email, role, status, token, expires_at, created_at")
+      .select(
+        "id, company_id, email, role, status, token, expires_at, created_at"
+      )
       .eq("company_id", companyRow.id)
       .order("created_at", { ascending: false });
 
@@ -280,7 +294,10 @@ export default function LandlordTeamPage() {
 
     const existingMember = members.find((member) => {
       const profile = getProfileFromMembership(member);
-      return profile?.email?.toLowerCase() === cleanEmail && member.status === "active";
+      return (
+        profile?.email?.toLowerCase() === cleanEmail &&
+        member.status === "active"
+      );
     });
 
     if (existingMember) {
@@ -300,57 +317,69 @@ export default function LandlordTeamPage() {
       return;
     }
 
-    const { data: inviteRow, error } = await supabase
-  .from("landlord_company_invites")
-  .insert({
-    company_id: company.id,
-    email: cleanEmail,
-    role: inviteRole,
-    invited_by: userId,
-    status: "pending",
-    token: makeInviteToken(),
-  })
-  .select("id")
-  .single();
+    const inviteToken = makeInviteToken();
 
-if (error) {
-  setMessage(error.message);
-  setSaving(false);
-  return;
-}
+    const { error } = await supabase
+      .from("landlord_company_invites")
+      .insert({
+        company_id: company.id,
+        email: cleanEmail,
+        role: inviteRole,
+        invited_by: userId,
+        status: "pending",
+        token: inviteToken,
+      })
+      .select("id, token")
+      .single();
 
-const {
-  data: { session },
-} = await supabase.auth.getSession();
+    if (error) {
+      setMessage(error.message);
+      setSaving(false);
+      return;
+    }
 
-const emailResponse = await fetch("/api/company-invites/send", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${session?.access_token || ""}`,
-  },
-  body: JSON.stringify({
-    invite_id: inviteRow.id,
-  }),
-});
+    const origin =
+      siteOrigin ||
+      (typeof window !== "undefined" ? window.location.origin : "");
 
-const emailResult = await emailResponse.json();
+    const inviteLink = `${origin}/company-invites/${inviteToken}`;
 
-if (!emailResponse.ok) {
-  setMessage(
-    emailResult.error ||
-      "Invite was created, but the email could not be sent."
-  );
-  await loadTeam();
-  setSaving(false);
-  return;
-}
+    const emailResponse = await fetch("/api/company-invites/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: cleanEmail,
+        companyName: company.name,
+        inviteLink,
+        role: roleLabel(inviteRole),
+      }),
+    });
 
-setInviteEmail("");
-setInviteRole("manager");
-setSuccessMessage("Invite created and email sent.");
-await loadTeam();
-setSaving(false);
+    const emailResult = await emailResponse.json();
+
+    setInviteEmail("");
+    setInviteRole("manager");
+
+    if (!emailResponse.ok) {
+      setMessage(
+        emailResult.error ||
+          "Invite was created, but the email could not be sent. You can still copy the invite link from Pending Invites."
+      );
+      await loadTeam();
+      setSaving(false);
+      return;
+    }
+
+    setSuccessMessage(
+      emailResult.skipped
+        ? "Invite created. Email is not configured yet, so copy the invite link from Pending Invites."
+        : "Invite created and email sent."
+    );
+
+    await loadTeam();
+    setSaving(false);
   }
 
   async function updateMemberRole(memberId: string, nextRole: MembershipRole) {
@@ -568,7 +597,10 @@ setSaving(false);
               Invite team member
             </h2>
 
-            <form onSubmit={handleInvite} className="mt-6 grid gap-5 md:grid-cols-[1fr_220px_auto] md:items-end">
+            <form
+              onSubmit={handleInvite}
+              className="mt-6 grid gap-5 md:grid-cols-[1fr_220px_auto] md:items-end"
+            >
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
                   Email *
@@ -616,14 +648,18 @@ setSaving(false);
             </form>
 
             <div className="mt-5 rounded-2xl bg-[#f7f4ef] p-4 text-sm leading-6 text-slate-600">
-              <strong>Note:</strong> This creates the invite record. Next we’ll
-              build the invite acceptance page and email notification.
+              <strong>Note:</strong> After creating the invite, copy the invite
+              link from Pending Invites and send it to the team member. Email
+              invites will send automatically once Resend is configured.
             </div>
           </section>
         )}
 
         <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <SectionHeader title="Active Members" badge={`${activeMembers.length}`} />
+          <SectionHeader
+            title="Active Members"
+            badge={`${activeMembers.length}`}
+          />
 
           {activeMembers.length > 0 ? (
             <div className="divide-y divide-slate-200">
@@ -634,7 +670,9 @@ setSaving(false);
                   currentRole={membership.role}
                   saving={saving}
                   currentUserId={userId}
-                  onRoleChange={(nextRole) => updateMemberRole(member.id, nextRole)}
+                  onRoleChange={(nextRole) =>
+                    updateMemberRole(member.id, nextRole)
+                  }
                   onRemove={() => removeMember(member)}
                 />
               ))}
@@ -648,7 +686,10 @@ setSaving(false);
         </section>
 
         <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <SectionHeader title="Pending Invites" badge={`${pendingInvites.length}`} />
+          <SectionHeader
+            title="Pending Invites"
+            badge={`${pendingInvites.length}`}
+          />
 
           {pendingInvites.length > 0 ? (
             <div className="divide-y divide-slate-200">
@@ -658,6 +699,7 @@ setSaving(false);
                   invite={invite}
                   editable={editable}
                   saving={saving}
+                  siteOrigin={siteOrigin}
                   onCancel={() => cancelInvite(invite.id)}
                 />
               ))}
@@ -716,7 +758,8 @@ function MemberRow({
   onRemove: () => void;
 }) {
   const profile = getProfileFromMembership(member);
-  const editable = !readonly && canManageTeam(currentRole) && member.role !== "owner";
+  const editable =
+    !readonly && canManageTeam(currentRole) && member.role !== "owner";
   const isSelf = member.user_id === currentUserId;
 
   return (
@@ -760,7 +803,9 @@ function MemberRow({
       <div className="grid gap-3">
         <select
           value={member.role}
-          onChange={(event) => onRoleChange(event.target.value as MembershipRole)}
+          onChange={(event) =>
+            onRoleChange(event.target.value as MembershipRole)
+          }
           disabled={!editable || saving}
           className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none disabled:bg-slate-100 disabled:text-slate-500"
         >
@@ -791,13 +836,23 @@ function InviteRow({
   invite,
   editable,
   saving,
+  siteOrigin,
   onCancel,
 }: {
   invite: CompanyInvite;
   editable: boolean;
   saving: boolean;
+  siteOrigin: string;
   onCancel: () => void;
 }) {
+  const inviteLink = siteOrigin
+    ? `${siteOrigin}/company-invites/${invite.token}`
+    : `/company-invites/${invite.token}`;
+
+  async function copyInviteLink() {
+    await navigator.clipboard.writeText(inviteLink);
+  }
+
   return (
     <div className="grid gap-5 p-5 lg:grid-cols-[1fr_220px] sm:p-6">
       <div>
@@ -817,9 +872,23 @@ function InviteRow({
           Expires {new Date(invite.expires_at).toLocaleDateString()}
         </p>
 
-        <p className="mt-2 break-all rounded-2xl bg-[#f7f4ef] px-4 py-3 text-xs font-bold text-slate-500">
-  Invite link: {`${window.location.origin}/company-invites/${invite.token}`}
-</p>
+        <div className="mt-3 rounded-2xl bg-[#f7f4ef] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+            Invite Link
+          </p>
+
+          <p className="mt-2 break-all text-sm font-bold text-slate-700">
+            {inviteLink}
+          </p>
+
+          <button
+            type="button"
+            onClick={copyInviteLink}
+            className="mt-3 rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
+          >
+            Copy Invite Link
+          </button>
+        </div>
       </div>
 
       {editable && (

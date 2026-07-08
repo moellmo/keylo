@@ -8,6 +8,15 @@ import NotificationBell from "@/components/NotificationBell";
 
 type Role = "tenant" | "landlord" | "admin" | null;
 
+type CompanyMembership = {
+  company_id: string;
+  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+};
+
+type UnreadMessageRow = {
+  id: string;
+};
+
 export default function Header() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -45,13 +54,66 @@ export default function Header() {
 
       setRole(userRole);
 
-      if (userRole === "admin") {
+            if (userRole === "admin") {
         const { count } = await supabase
           .from("contact_messages")
           .select("id", { count: "exact", head: true })
           .eq("status", "new");
 
         setUnreadMessages(count || 0);
+      } else if (userRole === "landlord") {
+        const unreadMessageIds = new Set<string>();
+
+        const { data: directUnreadRows } = await supabase
+          .from("messages")
+          .select("id")
+          .eq("recipient_id", user.id)
+          .eq("is_read", false);
+
+        ((directUnreadRows || []) as UnreadMessageRow[]).forEach((row) => {
+          unreadMessageIds.add(row.id);
+        });
+
+        const { data: membershipRows } = await supabase
+          .from("landlord_company_members")
+          .select("company_id, role")
+          .eq("user_id", user.id)
+          .eq("status", "active");
+
+        const companyIds = ((membershipRows || []) as CompanyMembership[])
+          .filter(
+            (membership) =>
+              membership.role === "owner" ||
+              membership.role === "admin" ||
+              membership.role === "manager"
+          )
+          .map((membership) => membership.company_id);
+
+        if (companyIds.length > 0) {
+          const { data: companyConversationRows } = await supabase
+            .from("conversations")
+            .select("id")
+            .in("landlord_company_id", companyIds);
+
+          const companyConversationIds = (companyConversationRows || []).map(
+            (conversation) => conversation.id as string
+          );
+
+          if (companyConversationIds.length > 0) {
+            const { data: companyUnreadRows } = await supabase
+              .from("messages")
+              .select("id")
+              .in("conversation_id", companyConversationIds)
+              .eq("is_read", false)
+              .neq("sender_id", user.id);
+
+            ((companyUnreadRows || []) as UnreadMessageRow[]).forEach((row) => {
+              unreadMessageIds.add(row.id);
+            });
+          }
+        }
+
+        setUnreadMessages(unreadMessageIds.size);
       } else {
         const { count } = await supabase
           .from("messages")
