@@ -5,6 +5,15 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
+import RatingForm from "@/components/RatingForm";
+import LeaseFeeBox from "@/components/LeaseFeeBox";
+
+type CustomLeaseSection = {
+  section_title: string;
+  section_body: string;
+  sort_order: number;
+  is_required: boolean;
+};
 
 type Lease = {
   id: string;
@@ -25,11 +34,16 @@ type Lease = {
   pet_terms: string | null;
   maintenance_terms: string | null;
   additional_terms: string | null;
+  custom_sections: CustomLeaseSection[] | null;
   sent_to_tenant_at: string | null;
   tenant_signed_at: string | null;
   landlord_signed_at: string | null;
   completed_at: string | null;
   created_at: string;
+};
+
+type RatingRow = {
+  id: string;
 };
 
 function formatStatus(status: string) {
@@ -49,6 +63,12 @@ function formatMoney(value: number | null) {
   return `$${value.toLocaleString()}`;
 }
 
+function getCustomSections(lease: Lease) {
+  return [...(lease.custom_sections || [])].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+  );
+}
+
 export default function LandlordLeaseDetailPage() {
   const params = useParams();
   const leaseId = String(params.id);
@@ -58,10 +78,12 @@ export default function LandlordLeaseDetailPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("error");
   const [lease, setLease] = useState<Lease | null>(null);
+  const [existingRating, setExistingRating] = useState<RatingRow | null>(null);
   const [saving, setSaving] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signatureName, setSignatureName] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [esignFeePaid, setEsignFeePaid] = useState(false);
 
   useEffect(() => {
     loadLease();
@@ -122,7 +144,16 @@ export default function LandlordLeaseDetailPage() {
       return;
     }
 
+    const { data: ratingRow } = await supabase
+      .from("ratings")
+      .select("id")
+      .eq("lease_id", leaseRow.id)
+      .eq("reviewer_id", user.id)
+      .eq("reviewee_id", leaseRow.tenant_id)
+      .maybeSingle();
+
     setLease(leaseRow);
+    setExistingRating((ratingRow as RatingRow | null) || null);
     setSignatureName(leaseRow.landlord_name || "");
     setAllowed(true);
     setLoading(false);
@@ -152,6 +183,17 @@ export default function LandlordLeaseDetailPage() {
       return;
     }
 
+    await createNotification({
+      userId: lease.tenant_id,
+      title: "Lease ready to sign",
+      message: `Your lease for ${
+        lease.property_address || "the rental"
+      } is ready to review and sign.`,
+      type: "lease_sent",
+      targetUrl: `/dashboard/tenant/leases/${lease.id}`,
+      dedupe: true,
+    });
+
     setSaving(false);
     await loadLease();
     showSuccess("Lease sent to tenant successfully.");
@@ -159,6 +201,11 @@ export default function LandlordLeaseDetailPage() {
 
   async function signLeaseAsLandlord() {
     if (!lease) return;
+
+    if (!esignFeePaid) {
+      showError("Please pay the $75 e-sign fee before completing the lease.");
+      return;
+    }
 
     if (lease.lease_status !== "tenant_signed") {
       showError("The tenant must sign before the landlord can complete this lease.");
@@ -224,26 +271,15 @@ export default function LandlordLeaseDetailPage() {
     }
 
     await createNotification({
-  userId: lease.tenant_id,
-  title: "Lease completed",
-  message: `Your lease for ${
-    lease.property_address || "the rental"
-  } has been completed. You can download your signed copy.`,
-  type: "lease_completed",
-  targetUrl: `/dashboard/tenant/leases/${lease.id}`,
-  dedupe: true,
-});
-
-await createNotification({
-  userId: lease.tenant_id,
-  title: "Lease ready to sign",
-  message: `Your lease for ${
-    lease.property_address || "the rental"
-  } is ready to review and sign.`,
-  type: "lease_sent",
-  targetUrl: `/dashboard/tenant/leases/${lease.id}`,
-  dedupe: true,
-});
+      userId: lease.tenant_id,
+      title: "Lease completed",
+      message: `Your lease for ${
+        lease.property_address || "the rental"
+      } has been completed. You can download your signed copy.`,
+      type: "lease_completed",
+      targetUrl: `/dashboard/tenant/leases/${lease.id}`,
+      dedupe: true,
+    });
 
     setSigning(false);
     await loadLease();
@@ -280,6 +316,8 @@ await createNotification({
   }
 
   const canLandlordSign = lease.lease_status === "tenant_signed";
+  const canRateTenant = lease.lease_status === "completed";
+  const customSections = getCustomSections(lease);
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -389,6 +427,41 @@ await createNotification({
             </div>
           </section>
 
+          {customSections.length > 0 && (
+            <section className="mt-8">
+              <h2 className="text-2xl font-black">Custom Lease Sections</h2>
+
+              <div className="mt-5 grid gap-5">
+                {customSections.map((section, index) => (
+                  <div
+                    key={`${section.section_title}-${index}`}
+                    className="rounded-3xl bg-[#f7f4ef] p-5"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+                        {section.sort_order}. {section.section_title}
+                      </p>
+
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-black ${
+                          section.is_required
+                            ? "bg-slate-950 text-white"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {section.is_required ? "Required" : "Optional"}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 whitespace-pre-wrap leading-8 text-slate-700">
+                      {section.section_body || "Not provided"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
             <h2 className="text-2xl font-black">Signing Status</h2>
 
@@ -422,6 +495,15 @@ await createNotification({
             </div>
           </section>
 
+          <section className="mt-8">
+            <LeaseFeeBox
+              leaseId={lease.id}
+              userId={lease.landlord_id}
+              payerRole="landlord"
+              onStatusChange={setEsignFeePaid}
+            />
+          </section>
+
           <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
             <h2 className="text-2xl font-black">Landlord Signature</h2>
 
@@ -443,6 +525,12 @@ await createNotification({
               </div>
             ) : canLandlordSign ? (
               <div className="mt-5 grid gap-5">
+                {!esignFeePaid && (
+                  <div className="rounded-2xl bg-amber-50 p-4 font-bold text-amber-800 ring-1 ring-amber-200">
+                    Pay the $75 e-sign fee above before completing the lease.
+                  </div>
+                )}
+
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
                     Type Legal or Company Name
@@ -471,7 +559,7 @@ await createNotification({
                 <button
                   type="button"
                   onClick={signLeaseAsLandlord}
-                  disabled={signing}
+                  disabled={signing || !esignFeePaid}
                   className="rounded-full bg-slate-950 px-6 py-4 font-black text-white disabled:opacity-60"
                 >
                   {signing ? "Completing..." : "Complete Lease"}
@@ -492,32 +580,61 @@ await createNotification({
             )}
           </section>
 
+          {canRateTenant && (
+            <section className="mt-8">
+              {existingRating ? (
+                <div className="rounded-3xl bg-green-50 p-6 text-green-800 ring-1 ring-green-200">
+                  <h2 className="text-2xl font-black">Tenant Rated</h2>
+                  <p className="mt-2 font-bold">
+                    You already submitted a rating for this tenant.
+                  </p>
+                </div>
+              ) : (
+                <RatingForm
+                  leaseId={lease.id}
+                  reviewerId={lease.landlord_id}
+                  revieweeId={lease.tenant_id}
+                  reviewerRole="landlord"
+                  revieweeRole="tenant"
+                  onSaved={loadLease}
+                />
+              )}
+            </section>
+          )}
+
           <div className="mt-8 flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
-  <Link
-    href={`/dashboard/landlord/leases/${lease.id}/print`}
-    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-  >
-    Download / Print PDF
-  </Link>
+            
+            <Link
+  href={`/dashboard/landlord/leases/${lease.id}/payments`}
+  className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
+>
+  Payments
+</Link>
+            <Link
+              href={`/dashboard/landlord/leases/${lease.id}/print`}
+              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+            >
+              Download / Print PDF
+            </Link>
 
-  <Link
-    href="/dashboard/landlord"
-    className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
-  >
-    Back to Dashboard
-  </Link>
+            <Link
+              href="/dashboard/landlord"
+              className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
+            >
+              Back to Dashboard
+            </Link>
 
-  {lease.lease_status === "draft" && (
-    <button
-      type="button"
-      onClick={sendToTenant}
-      disabled={saving}
-      className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-    >
-      {saving ? "Sending..." : "Send to Tenant"}
-    </button>
-  )}
-</div>
+            {lease.lease_status === "draft" && (
+              <button
+                type="button"
+                onClick={sendToTenant}
+                disabled={saving}
+                className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+              >
+                {saving ? "Sending..." : "Send to Tenant"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </main>

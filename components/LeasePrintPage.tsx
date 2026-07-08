@@ -5,6 +5,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+type CustomLeaseSection = {
+  section_title: string;
+  section_body: string;
+  sort_order: number;
+  is_required: boolean;
+};
+
 type Lease = {
   id: string;
   application_id: string;
@@ -24,6 +31,7 @@ type Lease = {
   pet_terms: string | null;
   maintenance_terms: string | null;
   additional_terms: string | null;
+  custom_sections: CustomLeaseSection[] | null;
   sent_to_tenant_at: string | null;
   tenant_signed_at: string | null;
   landlord_signed_at: string | null;
@@ -52,6 +60,12 @@ function formatDate(value: string | null) {
 function formatDateTime(value: string | null) {
   if (!value) return "Not provided";
   return new Date(value).toLocaleString();
+}
+
+function getCustomSections(lease: Lease) {
+  return [...(lease.custom_sections || [])].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+  );
 }
 
 export default function LeasePrintPage({
@@ -166,6 +180,8 @@ export default function LeasePrintPage({
     (signature) => signature.signer_role === "landlord"
   );
 
+  const customSections = getCustomSections(lease);
+
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-8 text-slate-950 print:bg-white print:px-0 print:py-0">
       <div className="mx-auto max-w-4xl">
@@ -225,7 +241,10 @@ export default function LeasePrintPage({
             <h2 className="text-2xl font-black">Property</h2>
 
             <div className="mt-4">
-              <PrintItem label="Property Address" value={lease.property_address} />
+              <PrintItem
+                label="Property Address"
+                value={lease.property_address}
+              />
             </div>
           </section>
 
@@ -271,7 +290,10 @@ export default function LeasePrintPage({
             <h2 className="text-2xl font-black">Terms and Conditions</h2>
 
             <div className="mt-4 grid gap-4">
-              <PrintBlock label="Utilities Terms" value={lease.utilities_terms} />
+              <PrintBlock
+                label="Utilities Terms"
+                value={lease.utilities_terms}
+              />
               <PrintBlock label="Pet Terms" value={lease.pet_terms} />
               <PrintBlock
                 label="Maintenance Terms"
@@ -283,6 +305,24 @@ export default function LeasePrintPage({
               />
             </div>
           </section>
+
+          {customSections.length > 0 && (
+            <section className="mt-8">
+              <h2 className="text-2xl font-black">Custom Lease Sections</h2>
+
+              <div className="mt-4 grid gap-4">
+                {customSections.map((section, index) => (
+                  <PrintBlock
+                    key={`${section.section_title}-${index}`}
+                    label={`${section.sort_order}. ${section.section_title}${
+                      section.is_required ? " — Required" : " — Optional"
+                    }`}
+                    value={section.section_body}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="mt-10 border-t border-slate-300 pt-8">
             <h2 className="text-2xl font-black">Electronic Signatures</h2>

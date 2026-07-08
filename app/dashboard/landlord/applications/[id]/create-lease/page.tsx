@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
 
 type ApplicationRow = {
   id: string;
@@ -46,6 +47,31 @@ type ProfileRow = {
   company_name: string | null;
 };
 
+type LeaseTemplate = {
+  id: string;
+  landlord_id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+};
+
+type LeaseTemplateSection = {
+  id: string;
+  template_id: string;
+  landlord_id: string;
+  section_title: string;
+  section_body: string;
+  sort_order: number;
+  is_required: boolean;
+};
+
+type CustomLeaseSection = {
+  section_title: string;
+  section_body: string;
+  sort_order: number;
+  is_required: boolean;
+};
+
 function getProperty(application: ApplicationRow) {
   if (Array.isArray(application.properties)) {
     return application.properties[0] || null;
@@ -72,6 +98,12 @@ export default function CreateLeasePage() {
   const [landlordProfile, setLandlordProfile] = useState<ProfileRow | null>(
     null
   );
+
+  const [templates, setTemplates] = useState<LeaseTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateSections, setTemplateSections] = useState<
+    LeaseTemplateSection[]
+  >([]);
 
   const [form, setForm] = useState({
     tenant_name: "",
@@ -222,12 +254,75 @@ export default function CreateLeasePage() {
           : "",
       }));
 
+      const { data: templateRows, error: templateError } = await supabase
+        .from("lease_templates")
+        .select("id, landlord_id, name, description, is_default")
+        .eq("landlord_id", user.id)
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (templateError) {
+        setMessage(templateError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const loadedTemplates = (templateRows || []) as LeaseTemplate[];
+      setTemplates(loadedTemplates);
+
+      const defaultTemplate =
+        loadedTemplates.find((template) => template.is_default) ||
+        loadedTemplates[0];
+
+      if (defaultTemplate?.id) {
+        setSelectedTemplateId(defaultTemplate.id);
+        await loadTemplateSections(defaultTemplate.id);
+      }
+
       setAllowed(true);
       setLoading(false);
     }
 
     loadPage();
   }, [applicationId, router]);
+
+  async function loadTemplateSections(templateId: string) {
+    if (!templateId) {
+      setTemplateSections([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("lease_template_sections")
+      .select(
+        `
+        id,
+        template_id,
+        landlord_id,
+        section_title,
+        section_body,
+        sort_order,
+        is_required
+      `
+      )
+      .eq("template_id", templateId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setMessage(error.message);
+      setTemplateSections([]);
+      return;
+    }
+
+    setTemplateSections((data || []) as LeaseTemplateSection[]);
+  }
+
+  async function changeTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    await loadTemplateSections(templateId);
+  }
 
   function updateField(field: keyof typeof form, value: string) {
     setForm((current) => ({
@@ -255,6 +350,15 @@ export default function CreateLeasePage() {
   function clearMessages() {
     setMessage("");
     setMessageType("info");
+  }
+
+  function buildCustomSections(): CustomLeaseSection[] {
+    return templateSections.map((section) => ({
+      section_title: section.section_title,
+      section_body: section.section_body,
+      sort_order: section.sort_order,
+      is_required: section.is_required,
+    }));
   }
 
   async function saveLease(leaseStatus: "draft" | "sent_to_tenant") {
@@ -318,6 +422,8 @@ export default function CreateLeasePage() {
     setSaving(true);
     clearMessages();
 
+    const customSections = buildCustomSections();
+
     const { data: newLease, error } = await supabase
       .from("leases")
       .insert({
@@ -343,6 +449,12 @@ export default function CreateLeasePage() {
         maintenance_terms: form.maintenance_terms.trim(),
         additional_terms: form.additional_terms.trim(),
 
+        lease_template_id: selectedTemplateId || null,
+        custom_sections: customSections,
+
+        tenant_esign_fee_status: "unpaid",
+        landlord_esign_fee_status: "unpaid",
+
         sent_to_tenant_at:
           leaseStatus === "sent_to_tenant" ? new Date().toISOString() : null,
 
@@ -358,25 +470,54 @@ export default function CreateLeasePage() {
     }
 
     if (!newLease?.id) {
-  showError("Lease was not created. Please try again.");
-  setSaving(false);
-  return;
-}
+      showError("Lease was not created. Please try again.");
+      setSaving(false);
+      return;
+    }
 
-if (leaseStatus === "sent_to_tenant") {
-  await supabase.from("notifications").insert({
-    user_id: application.tenant_id,
-    title: "Lease ready to sign",
-    message: `Your lease for ${
-      form.property_address || "the rental"
-    } is ready to review and sign.`,
-    type: "lease_sent",
-    target_url: `/dashboard/tenant/leases/${newLease.id}`,
-  });
-}
+    await supabase.from("lease_fees").upsert(
+      [
+        {
+          lease_id: newLease.id,
+          user_id: application.tenant_id,
+          payer_role: "tenant",
+          fee_type: "esign_fee",
+          amount_cents: 7500,
+          currency: "usd",
+          status: "unpaid",
+          updated_at: new Date().toISOString(),
+        },
+        {
+          lease_id: newLease.id,
+          user_id: landlordId,
+          payer_role: "landlord",
+          fee_type: "esign_fee",
+          amount_cents: 7500,
+          currency: "usd",
+          status: "unpaid",
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      {
+        onConflict: "lease_id,user_id,fee_type",
+      }
+    );
 
-setSaving(false);
-router.push(`/dashboard/landlord/leases/${newLease.id}`);
+    if (leaseStatus === "sent_to_tenant") {
+      await createNotification({
+        userId: application.tenant_id,
+        title: "Lease ready to sign",
+        message: `Your lease for ${
+          form.property_address || "the rental"
+        } is ready to review and sign.`,
+        type: "lease_sent",
+        targetUrl: `/dashboard/tenant/leases/${newLease.id}`,
+        dedupe: true,
+      });
+    }
+
+    setSaving(false);
+    router.push(`/dashboard/landlord/leases/${newLease.id}`);
   }
 
   if (loading) {
@@ -409,6 +550,9 @@ router.push(`/dashboard/landlord/leases/${newLease.id}`);
   }
 
   const property = getProperty(application);
+  const selectedTemplate = templates.find(
+    (template) => template.id === selectedTemplateId
+  );
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -444,6 +588,112 @@ router.push(`/dashboard/landlord/leases/${newLease.id}`);
           )}
 
           <div className="mt-8 grid gap-8">
+            <section className="rounded-3xl bg-[#f7f4ef] p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-2xl font-black">Lease Template</h2>
+
+                  <p className="mt-2 leading-7 text-slate-600">
+                    Choose a saved template from your Lease Builder. Its custom
+                    clauses will be saved into this lease.
+                  </p>
+                </div>
+
+                <Link
+                  href="/dashboard/landlord/lease-builder"
+                  className="w-fit rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
+                >
+                  Manage Templates
+                </Link>
+              </div>
+
+              {templates.length > 0 ? (
+                <>
+                  <label className="mt-5 block">
+                    <span className="mb-2 block text-sm font-black text-slate-700">
+                      Select Template
+                    </span>
+
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(event) => changeTemplate(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-black outline-none focus:border-slate-950"
+                    >
+                      {templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                          {template.is_default ? " — Default" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="mt-5 rounded-2xl bg-white p-5">
+                    <h3 className="text-xl font-black">
+                      {selectedTemplate?.name || "Selected Template"}
+                    </h3>
+
+                    {selectedTemplate?.description && (
+                      <p className="mt-2 font-bold text-slate-500">
+                        {selectedTemplate.description}
+                      </p>
+                    )}
+
+                    <p className="mt-3 text-sm font-bold text-slate-500">
+                      {templateSections.length} custom section
+                      {templateSections.length === 1 ? "" : "s"} will be added
+                      to this lease.
+                    </p>
+                  </div>
+
+                  {templateSections.length > 0 && (
+                    <div className="mt-5 divide-y divide-slate-200 rounded-2xl bg-white">
+                      {templateSections.map((section) => (
+                        <div key={section.id} className="p-5">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h3 className="font-black">
+                              {section.sort_order}. {section.section_title}
+                            </h3>
+
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-black ${
+                                section.is_required
+                                  ? "bg-slate-950 text-white"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {section.is_required ? "Required" : "Optional"}
+                            </span>
+                          </div>
+
+                          <p className="mt-3 whitespace-pre-wrap leading-7 text-slate-700">
+                            {section.section_body}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="mt-5 rounded-2xl bg-white p-5">
+                  <h3 className="text-xl font-black">No templates yet</h3>
+
+                  <p className="mt-2 leading-7 text-slate-600">
+                    You can still create this lease using the basic lease terms
+                    below. To add reusable custom clauses, create a lease
+                    template first.
+                  </p>
+
+                  <Link
+                    href="/dashboard/landlord/lease-builder"
+                    className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 font-black text-white"
+                  >
+                    Create Lease Template
+                  </Link>
+                </div>
+              )}
+            </section>
+
             <section>
               <h2 className="text-2xl font-black">Lease Parties</h2>
 
@@ -510,7 +760,7 @@ router.push(`/dashboard/landlord/leases/${newLease.id}`);
             </section>
 
             <section>
-              <h2 className="text-2xl font-black">Lease Clauses</h2>
+              <h2 className="text-2xl font-black">Basic Lease Clauses</h2>
 
               <div className="mt-5 grid gap-5">
                 <TextArea
@@ -538,6 +788,38 @@ router.push(`/dashboard/landlord/leases/${newLease.id}`);
                   value={form.additional_terms}
                   onChange={(value) => updateField("additional_terms", value)}
                 />
+              </div>
+            </section>
+
+            <section className="rounded-3xl bg-[#f7f4ef] p-6">
+              <h2 className="text-2xl font-black">E-Sign Fees</h2>
+
+              <p className="mt-3 leading-7 text-slate-600">
+                Keylo will create a $75 e-sign fee for the tenant and a $75
+                e-sign fee for the landlord. Stripe payment will be connected in
+                the next step.
+              </p>
+
+              <div className="mt-5 grid gap-5 md:grid-cols-2">
+                <div className="rounded-3xl bg-white p-5">
+                  <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+                    Tenant E-Sign Fee
+                  </p>
+                  <p className="mt-2 text-3xl font-black">$75</p>
+                  <p className="mt-2 text-sm font-bold text-slate-500">
+                    Status: unpaid
+                  </p>
+                </div>
+
+                <div className="rounded-3xl bg-white p-5">
+                  <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+                    Landlord E-Sign Fee
+                  </p>
+                  <p className="mt-2 text-3xl font-black">$75</p>
+                  <p className="mt-2 text-sm font-bold text-slate-500">
+                    Status: unpaid
+                  </p>
+                </div>
               </div>
             </section>
           </div>

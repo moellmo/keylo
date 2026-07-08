@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import StatusButton from "../../properties/[id]/applications/StatusButton";
+import KeyloScoreCard from "@/components/KeyloScoreCard";
 
 type PropertyForApplication = {
   id: string;
@@ -342,6 +343,10 @@ export default function ApplicationDetailPage() {
               {message}
             </div>
           )}
+
+          <section className="mt-8">
+            <KeyloScoreCard userId={application.tenant_id} role="tenant" />
+          </section>
 
           <section className="mt-8">
             <h2 className="text-2xl font-black">Main Application</h2>

@@ -272,6 +272,28 @@ export default function LandlordDashboardPage() {
               Verification
             </Link>
 
+            <Link
+  href="/dashboard/landlord/lease-builder"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Lease Builder
+</Link>
+
+<Link
+  href="/dashboard/landlord/payments"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Payments
+</Link>
+
+<Link
+  href="/dashboard/landlord/maintenance"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Maintenance
+</Link>
+
+
             <LogoutButton />
 
             <Link

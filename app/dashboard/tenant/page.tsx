@@ -260,6 +260,20 @@ export default function TenantDashboardPage() {
             </Link>
 
             <Link
+  href="/dashboard/tenant/payments"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Payments
+</Link>
+
+<Link
+  href="/dashboard/tenant/maintenance"
+  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+>
+  Maintenance
+</Link>
+
+            <Link
               href="/dashboard/tenant/profile"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
             >
