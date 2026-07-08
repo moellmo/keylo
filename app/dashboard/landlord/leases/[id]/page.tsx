@@ -407,7 +407,7 @@ export default function LandlordLeaseDetailPage() {
   const canLandlordSign = lease.lease_status === "tenant_signed";
   const canRateTenant = lease.lease_status === "completed";
   const customSections = getCustomSections(lease);
-  const landlordFeeUserId = currentUserId || lease.landlord_id;
+  const landlordFeeUserId = lease.landlord_id;
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">

@@ -15,6 +15,15 @@ const amenityOptions = [
   "Near transportation",
 ];
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | "";
+
 type PropertyPhoto = {
   id: string;
   photo_url: string;
@@ -26,17 +35,52 @@ type AdminProfile = {
   id: string;
 };
 
+type PropertyRow = {
+  id: string;
+  landlord_id: string;
+  landlord_company_id: string | null;
+  title: string | null;
+  monthly_rent: number | null;
+  available_date: string | null;
+  bedrooms: string | null;
+  bathrooms: string | null;
+  street_address: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  neighborhood: string | null;
+  description: string | null;
+  pet_policy: string | null;
+  amenities: string[] | null;
+  status: string | null;
+  property_photos: PropertyPhoto[] | null;
+};
+
+type CompanyMembership = {
+  company_id: string;
+  role: CompanyRole;
+};
+
+function canEditCompanyListing(role: CompanyRole) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
 export default function EditListingPage() {
   const params = useParams();
   const router = useRouter();
   const propertyId = params.id as string;
 
   const [loading, setLoading] = useState(true);
+  const [allowed, setAllowed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [existingPhotos, setExistingPhotos] = useState<PropertyPhoto[]>([]);
   const [originalStatus, setOriginalStatus] = useState("draft");
+  const [companyRole, setCompanyRole] = useState<CompanyRole>("");
+  const [landlordCompanyId, setLandlordCompanyId] = useState<string | null>(
+    null
+  );
 
   const [form, setForm] = useState({
     title: "",
@@ -56,77 +100,132 @@ export default function EditListingPage() {
   });
 
   useEffect(() => {
-    async function loadListing() {
-      setLoading(true);
+    loadListing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+  async function loadListing() {
+    setLoading(true);
+    setAllowed(false);
+    setMessage("");
 
-      if (!user) {
-        setMessage("Please log in as a landlord to edit this listing.");
-        setLoading(false);
-        return;
-      }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      const { data: property, error } = await supabase
-        .from("properties")
-        .select(
-          `
-          *,
-          property_photos (
-            id,
-            photo_url,
-            storage_path,
-            sort_order
-          )
-        `
-        )
-        .eq("id", propertyId)
-        .eq("landlord_id", user.id)
-        .single();
-
-      if (error || !property) {
-        setMessage(
-          "Listing not found, or you do not have permission to edit it."
-        );
-        setLoading(false);
-        return;
-      }
-
-      const propertyStatus = property.status || "draft";
-
-      setForm({
-        title: property.title || "",
-        monthly_rent: property.monthly_rent
-          ? String(property.monthly_rent)
-          : "",
-        available_date: property.available_date || "",
-        bedrooms: property.bedrooms || "",
-        bathrooms: property.bathrooms || "",
-        street_address: property.street_address || "",
-        city: property.city || "",
-        state: property.state || "",
-        zip_code: property.zip_code || "",
-        neighborhood: property.neighborhood || "",
-        description: property.description || "",
-        pet_policy: property.pet_policy || "",
-        amenities: property.amenities || [],
-        status: propertyStatus,
-      });
-
-      setOriginalStatus(propertyStatus);
-
-      const sortedPhotos = [...(property.property_photos || [])].sort(
-        (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
-      );
-
-      setExistingPhotos(sortedPhotos);
+    if (!user) {
+      setMessage("Please log in as a landlord to edit this listing.");
       setLoading(false);
+      return;
     }
 
-    loadListing();
-  }, [propertyId]);
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile) {
+      setMessage("Could not load your account.");
+      setLoading(false);
+      return;
+    }
+
+    if (profile.role !== "landlord" && profile.role !== "admin") {
+      setMessage("Only landlord accounts can edit rental listings.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: propertyData, error } = await supabase
+      .from("properties")
+      .select(
+        `
+        *,
+        property_photos (
+          id,
+          photo_url,
+          storage_path,
+          sort_order
+        )
+      `
+      )
+      .eq("id", propertyId)
+      .single();
+
+    if (error || !propertyData) {
+      setMessage("Listing not found.");
+      setLoading(false);
+      return;
+    }
+
+    const property = propertyData as unknown as PropertyRow;
+
+    const isAdmin = profile.role === "admin";
+    const isOriginalLandlord = property.landlord_id === user.id;
+
+    let isCompanyEditor = false;
+    let currentCompanyRole: CompanyRole = "";
+
+    if (!isAdmin && !isOriginalLandlord && property.landlord_company_id) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select("company_id, role")
+        .eq("company_id", property.landlord_company_id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (membershipError) {
+        setMessage(membershipError.message);
+        setLoading(false);
+        return;
+      }
+
+      const companyMembership = membership as CompanyMembership | null;
+
+      currentCompanyRole = companyMembership?.role || "";
+      isCompanyEditor =
+        !!companyMembership && canEditCompanyListing(companyMembership.role);
+    }
+
+    if (!isAdmin && !isOriginalLandlord && !isCompanyEditor) {
+      setMessage("You do not have permission to edit this listing.");
+      setLoading(false);
+      return;
+    }
+
+    const propertyStatus = property.status || "draft";
+
+    setForm({
+      title: property.title || "",
+      monthly_rent: property.monthly_rent ? String(property.monthly_rent) : "",
+      available_date: property.available_date || "",
+      bedrooms: property.bedrooms || "",
+      bathrooms: property.bathrooms || "",
+      street_address: property.street_address || "",
+      city: property.city || "",
+      state: property.state || "",
+      zip_code: property.zip_code || "",
+      neighborhood: property.neighborhood || "",
+      description: property.description || "",
+      pet_policy: property.pet_policy || "",
+      amenities: property.amenities || [],
+      status: propertyStatus,
+    });
+
+    setOriginalStatus(propertyStatus);
+    setCompanyRole(currentCompanyRole);
+    setLandlordCompanyId(property.landlord_company_id || null);
+
+    const sortedPhotos = [...(property.property_photos || [])].sort(
+      (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+    );
+
+    setExistingPhotos(sortedPhotos);
+    setAllowed(true);
+    setLoading(false);
+  }
 
   function updateField(field: keyof typeof form, value: string | string[]) {
     setForm((current) => ({
@@ -161,7 +260,7 @@ export default function EditListingPage() {
     for (const admin of admins as AdminProfile[]) {
       await createNotification({
         userId: admin.id,
-        title: "New listing pending review",
+        title: "Listing pending review",
         message: `A landlord submitted "${
           form.title || "a listing"
         }" for approval.`,
@@ -175,6 +274,8 @@ export default function EditListingPage() {
   async function deletePhoto(photo: PropertyPhoto) {
     const confirmDelete = window.confirm("Delete this photo?");
     if (!confirmDelete) return;
+
+    setMessage("");
 
     const { error: storageError } = await supabase.storage
       .from("property-photos")
@@ -237,9 +338,9 @@ export default function EditListingPage() {
         pet_policy: form.pet_policy,
         amenities: form.amenities,
         status: form.status,
+        updated_at: new Date().toISOString(),
       })
-      .eq("id", propertyId)
-      .eq("landlord_id", user.id);
+      .eq("id", propertyId);
 
     if (error) {
       setMessage(`Error updating listing: ${error.message}`);
@@ -297,7 +398,7 @@ export default function EditListingPage() {
 
     setOriginalStatus(form.status);
     setSaving(false);
-    router.push("/dashboard/landlord");
+    router.push("/dashboard/landlord/properties");
   }
 
   if (loading) {
@@ -310,14 +411,33 @@ export default function EditListingPage() {
     );
   }
 
+  if (!allowed) {
+    return (
+      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+        <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+          <h1 className="text-3xl font-black">Listing unavailable</h1>
+
+          <p className="mt-3 text-slate-600">{message}</p>
+
+          <Link
+            href="/dashboard/landlord/properties"
+            className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+          >
+            Back to Listings
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
         <Link
-          href="/dashboard/landlord"
+          href="/dashboard/landlord/properties"
           className="text-sm font-bold text-slate-600"
         >
-          ← Back to Landlord Dashboard
+          ← Back to Listings
         </Link>
 
         <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
@@ -326,13 +446,31 @@ export default function EditListingPage() {
               Landlord Dashboard
             </p>
 
-            <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
-              Edit Rental Listing
-            </h1>
+            <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h1 className="text-4xl font-black tracking-tight md:text-5xl">
+                  Edit Rental Listing
+                </h1>
 
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-              Update the rental details, status, amenities, and photos.
-            </p>
+                <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
+                  Update the rental details, status, amenities, and photos.
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                {landlordCompanyId && (
+                  <span className="w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    Company Listing
+                  </span>
+                )}
+
+                {companyRole && (
+                  <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
+                    Role: {companyRole}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {message && (
@@ -431,11 +569,11 @@ export default function EditListingPage() {
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   >
                     <option value="draft">Draft</option>
-                    <option value="published">Published</option>
+                    <option value="pending">Pending Review</option>
                     <option value="paused">Paused</option>
                     <option value="archived">Archived</option>
-                    <option value="pending">Pending Review</option>
                     <option value="rejected">Rejected</option>
+                    <option value="published">Published</option>
                   </select>
                 </div>
               </div>
@@ -613,7 +751,7 @@ export default function EditListingPage() {
                     const selectedFiles = Array.from(e.target.files || []);
                     setPhotos(selectedFiles);
                   }}
-                  className="mt-5 rounded-2xl bg-white p-3 text-sm font-bold"
+                  className="mt-5 max-w-full rounded-2xl bg-white p-3 text-sm font-bold"
                 />
 
                 {photos.length > 0 && (
@@ -647,7 +785,7 @@ export default function EditListingPage() {
 
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
               <Link
-                href="/dashboard/landlord"
+                href="/dashboard/landlord/properties"
                 className="rounded-full border border-slate-300 bg-white px-6 py-3 text-center font-black"
               >
                 Cancel

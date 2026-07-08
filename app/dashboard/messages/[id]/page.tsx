@@ -157,9 +157,7 @@ export default function MessageThreadPage() {
     let currentCompanyRole = "";
 
     if (
-      !isAdmin &&
       !isTenant &&
-      !isOriginalLandlord &&
       conversationData.landlord_company_id
     ) {
       const { data: membership, error: membershipError } = await supabase
@@ -204,11 +202,21 @@ export default function MessageThreadPage() {
       return;
     }
 
-    await supabase
-      .from("messages")
-      .update({ is_read: true })
-      .eq("conversation_id", conversationId)
-      .eq("recipient_id", user.id);
+    if (isTenant) {
+      await supabase
+        .from("messages")
+        .update({ is_read: true })
+        .eq("conversation_id", conversationId)
+        .eq("recipient_id", user.id)
+        .eq("is_read", false);
+    } else if (isAdmin || isOriginalLandlord || isCompanyMessenger) {
+      await supabase
+        .from("messages")
+        .update({ is_read: true })
+        .eq("conversation_id", conversationId)
+        .eq("sender_id", conversationData.tenant_id)
+        .eq("is_read", false);
+    }
 
     window.dispatchEvent(new Event("keylo-messages-read"));
 
@@ -242,6 +250,7 @@ export default function MessageThreadPage() {
       sender_id: userId,
       recipient_id: recipientId,
       body: cleanBody,
+      is_read: false,
     });
 
     if (insertError) {
@@ -250,12 +259,14 @@ export default function MessageThreadPage() {
       return;
     }
 
+    const now = new Date().toISOString();
+
     const { error: conversationUpdateError } = await supabase
       .from("conversations")
       .update({
         last_message: cleanBody,
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_message_at: now,
+        updated_at: now,
       })
       .eq("id", conversation.id);
 

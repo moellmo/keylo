@@ -287,12 +287,15 @@ export default function CreateLeasePage() {
           : "",
       }));
 
-      const { data: templateRows, error: templateError } = await supabase
-        .from("lease_templates")
-        .select("id, landlord_id, name, description, is_default")
-        .eq("landlord_id", user.id)
-        .order("is_default", { ascending: false })
-        .order("created_at", { ascending: false });
+     const templateOwnerId =
+  property?.landlord_id || app.landlord_id || user.id;
+
+const { data: templateRows, error: templateError } = await supabase
+  .from("lease_templates")
+  .select("id, landlord_id, name, description, is_default")
+  .eq("landlord_id", templateOwnerId)
+  .order("is_default", { ascending: false })
+  .order("created_at", { ascending: false });
 
       if (templateError) {
         setMessage(templateError.message);
@@ -518,15 +521,15 @@ export default function CreateLeasePage() {
     await supabase.from("lease_fees").upsert(
       [
         {
-          lease_id: newLease.id,
-          user_id: application.tenant_id,
-          payer_role: "tenant",
-          fee_type: "esign_fee",
-          amount_cents: 7500,
-          currency: "usd",
-          status: "unpaid",
-          updated_at: new Date().toISOString(),
-        },
+  lease_id: newLease.id,
+  user_id: leaseLandlordId,
+  payer_role: "landlord",
+  fee_type: "esign_fee",
+  amount_cents: 7500,
+  currency: "usd",
+  status: "unpaid",
+  updated_at: new Date().toISOString(),
+},
         {
           lease_id: newLease.id,
           user_id: landlordId,

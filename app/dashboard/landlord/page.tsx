@@ -51,9 +51,25 @@ type MaintenanceRequest = {
   created_at: string;
 };
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | "";
+
+type DashboardTab =
+  | "overview"
+  | "listings"
+  | "leases"
+  | "payments"
+  | "maintenance";
+
 type CompanyMembership = {
   company_id: string;
-  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  role: CompanyRole;
   landlord_companies:
     | {
         id: string;
@@ -98,6 +114,39 @@ function getDaysUntilLeaseEnds(leaseEndDate: string | null) {
   );
 }
 
+function isFullCompanyManager(role: CompanyRole) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
+function canUsePayments(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting"
+  );
+}
+
+function canUseMaintenance(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "maintenance"
+  );
+}
+
+function canReadCompanyData(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting" ||
+    role === "maintenance" ||
+    role === "viewer"
+  );
+}
+
 export default function LandlordDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -108,9 +157,10 @@ export default function LandlordDashboardPage() {
     MaintenanceRequest[]
   >([]);
   const [companyName, setCompanyName] = useState("");
-  const [companyRole, setCompanyRole] = useState("");
+  const [companyRole, setCompanyRole] = useState<CompanyRole>("");
   const [hasCompany, setHasCompany] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
 
   useEffect(() => {
     async function loadDashboard() {
@@ -146,45 +196,46 @@ export default function LandlordDashboardPage() {
 
       let companyId: string | null = null;
 
-const { data: membershipRows, error: membershipError } = await supabase
-  .from("landlord_company_members")
-  .select(
-    `
-    company_id,
-    role,
-    landlord_companies (
-      id,
-      name
-    )
-  `
-  )
-  .eq("user_id", user.id)
-  .eq("status", "active")
-  .order("created_at", { ascending: true })
-  .limit(1);
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select(
+          `
+          company_id,
+          role,
+          landlord_companies (
+            id,
+            name
+          )
+        `
+        )
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1);
 
-if (membershipError) {
-  setErrorMessage(membershipError.message);
-  setLoading(false);
-  return;
-}
+      if (membershipError) {
+        setErrorMessage(membershipError.message);
+        setLoading(false);
+        return;
+      }
 
-const firstMembership =
-  ((membershipRows || [])[0] as unknown as CompanyMembership | undefined) ||
-  null;
+      const firstMembership =
+        ((membershipRows || [])[0] as unknown as
+          | CompanyMembership
+          | undefined) || null;
 
-const company = getCompanyFromMembership(firstMembership);
+      const company = getCompanyFromMembership(firstMembership);
 
-if (firstMembership && company) {
-  companyId = company.id;
-  setCompanyName(company.name);
-  setCompanyRole(firstMembership.role);
-  setHasCompany(true);
-} else {
-  setCompanyName("");
-  setCompanyRole("");
-  setHasCompany(false);
-}
+      if (firstMembership && company) {
+        companyId = company.id;
+        setCompanyName(company.name);
+        setCompanyRole(firstMembership.role);
+        setHasCompany(true);
+      } else {
+        setCompanyName("");
+        setCompanyRole("");
+        setHasCompany(false);
+      }
 
       let propertiesQuery = supabase
         .from("properties")
@@ -378,6 +429,39 @@ if (firstMembership && company) {
     );
   }
 
+  const isPersonalLandlord = !hasCompany;
+
+  const canManageListings =
+    isPersonalLandlord || isFullCompanyManager(companyRole);
+  const canManageApplications =
+    isPersonalLandlord || isFullCompanyManager(companyRole);
+  const canManageLeases =
+    isPersonalLandlord || isFullCompanyManager(companyRole);
+
+  const canViewLeases =
+    isPersonalLandlord ||
+    isFullCompanyManager(companyRole) ||
+    companyRole === "accounting" ||
+    companyRole === "viewer";
+
+  const canManagePayments = isPersonalLandlord || canUsePayments(companyRole);
+
+  const canManageMaintenance =
+    isPersonalLandlord || canUseMaintenance(companyRole);
+
+  const canViewListings =
+    isPersonalLandlord ||
+    isFullCompanyManager(companyRole) ||
+    companyRole === "viewer";
+
+  const canViewMaintenance =
+    isPersonalLandlord ||
+    canUseMaintenance(companyRole) ||
+    companyRole === "viewer";
+
+  const canViewDashboardData =
+    isPersonalLandlord || canReadCompanyData(companyRole);
+
   const totalApplications = listings.reduce(
     (total, listing) => total + getApplications(listing).length,
     0
@@ -449,8 +533,7 @@ if (firstMembership && company) {
   );
 
   const activeMaintenance = maintenanceRequests.filter(
-    (request) =>
-      request.status === "open" || request.status === "in_progress"
+    (request) => request.status === "open" || request.status === "in_progress"
   );
 
   const urgentMaintenance = maintenanceRequests.filter(
@@ -462,6 +545,17 @@ if (firstMembership && company) {
   const recentLeases = leases.slice(0, 4);
   const recentMaintenance = maintenanceRequests.slice(0, 3);
   const recentListings = listings.slice(0, 6);
+
+  const allowedTabs: DashboardTab[] = ["overview"];
+
+  if (canViewListings) allowedTabs.push("listings");
+  if (canViewLeases) allowedTabs.push("leases");
+  if (canManagePayments) allowedTabs.push("payments");
+  if (canViewMaintenance) allowedTabs.push("maintenance");
+
+  const safeActiveTab = allowedTabs.includes(activeTab)
+    ? activeTab
+    : "overview";
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -499,32 +593,87 @@ if (firstMembership && company) {
               )}
             </div>
 
-            <Link
-              href="/dashboard/landlord/properties/new"
-              className="rounded-full bg-slate-950 px-6 py-4 text-center text-base font-black text-white shadow-sm"
-            >
-              Post New Listing
-            </Link>
+            {canManageListings && (
+              <Link
+                href="/dashboard/landlord/properties/new"
+                className="rounded-full bg-slate-950 px-6 py-4 text-center text-base font-black text-white shadow-sm"
+              >
+                Post New Listing
+              </Link>
+            )}
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <QuickLink href="/dashboard/landlord/company" label="Company" />
-            <QuickLink href="/dashboard/landlord/team" label="Team" />
-            <QuickLink href="/dashboard/landlord/payments" label="Payments" />
-            <QuickLink
-              href="/dashboard/landlord/maintenance"
-              label="Maintenance"
-            />
-            <QuickLink
-              href="/dashboard/landlord/lease-builder"
-              label="Lease Builder"
-            />
+            {isPersonalLandlord || isFullCompanyManager(companyRole) ? (
+              <>
+                <QuickLink href="/dashboard/landlord/company" label="Company" />
+                <QuickLink href="/dashboard/landlord/team" label="Team" />
+                <QuickLink
+                  href="/dashboard/landlord/lease-builder"
+                  label="Lease Builder"
+                />
+                <QuickLink
+                  href="/dashboard/landlord/verification"
+                  label="Verification"
+                />
+              </>
+            ) : null}
+
+            {canManagePayments && (
+              <QuickLink href="/dashboard/landlord/payments" label="Payments" />
+            )}
+
+            {canManageMaintenance && (
+              <QuickLink
+                href="/dashboard/landlord/maintenance"
+                label="Maintenance"
+              />
+            )}
+
             <QuickLink href="/dashboard/notifications" label="Notifications" />
-            <QuickLink
-              href="/dashboard/landlord/verification"
-              label="Verification"
-            />
           </div>
+
+          {canViewDashboardData && (
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <TabButton
+                active={safeActiveTab === "overview"}
+                label="Overview"
+                onClick={() => setActiveTab("overview")}
+              />
+
+              {canViewListings && (
+                <TabButton
+                  active={safeActiveTab === "listings"}
+                  label={`Listings (${listings.length})`}
+                  onClick={() => setActiveTab("listings")}
+                />
+              )}
+
+              {canViewLeases && (
+                <TabButton
+                  active={safeActiveTab === "leases"}
+                  label={`Leases (${leases.length})`}
+                  onClick={() => setActiveTab("leases")}
+                />
+              )}
+
+              {canManagePayments && (
+                <TabButton
+                  active={safeActiveTab === "payments"}
+                  label={`Payments (${unpaidCharges.length})`}
+                  onClick={() => setActiveTab("payments")}
+                />
+              )}
+
+              {canViewMaintenance && (
+                <TabButton
+                  active={safeActiveTab === "maintenance"}
+                  label={`Maintenance (${activeMaintenance.length})`}
+                  onClick={() => setActiveTab("maintenance")}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         {!hasCompany && (
@@ -548,306 +697,437 @@ if (firstMembership && company) {
           </div>
         )}
 
+        {hasCompany && companyRole === "viewer" && (
+          <div className="mt-6 rounded-[2rem] bg-slate-50 p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+            <h2 className="text-2xl font-black text-slate-950">
+              Read-only access
+            </h2>
+
+            <p className="mt-2 max-w-3xl font-bold leading-7 text-slate-600">
+              Your company role can view dashboard information but cannot create,
+              edit, approve, sign, pay, or delete company records.
+            </p>
+          </div>
+        )}
+
         {errorMessage && (
           <div className="mt-6 rounded-2xl bg-white px-5 py-4 font-bold text-red-700 shadow-sm ring-1 ring-red-200">
             {errorMessage}
           </div>
         )}
 
-        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <DashboardCard
-            title="Unpaid"
-            value={formatMoneyFromCents(unpaidBalance)}
-            text={`${unpaidCharges.length} unpaid charge${
-              unpaidCharges.length === 1 ? "" : "s"
-            }`}
-            href="/dashboard/landlord/payments"
-            urgent={unpaidBalance > 0}
-          />
-
-          <DashboardCard
-            title="Maintenance"
-            value={String(activeMaintenance.length)}
-            text={`${urgentMaintenance.length} urgent · ${maintenanceRequests.length} total`}
-            href="/dashboard/landlord/maintenance"
-            urgent={urgentMaintenance.length > 0}
-          />
-
-          <DashboardCard
-            title="Applications"
-            value={String(totalApplications)}
-            text={`${publishedListings} published listing${
-              publishedListings === 1 ? "" : "s"
-            }`}
-            href="#listings"
-          />
-
-          <DashboardCard
-            title="Leases"
-            value={String(leases.length)}
-            text={`${leasesNeedingSignature.length} sign · ${completedLeases.length} done`}
-            href="#leases"
-            urgent={
-              leasesNeedingSignature.length > 0 || leasesEndingSoon.length > 0
-            }
-          />
-        </section>
-
-        <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Overview
-              </p>
-
-              <h2 className="mt-2 text-2xl font-black sm:text-3xl">
-                Needs attention
-              </h2>
-            </div>
-
-            <Link
-              href="/dashboard/landlord/profile"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
-            >
-              Profile
-            </Link>
+        {!canViewDashboardData && (
+          <div className="mt-6 rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+            <h2 className="text-2xl font-black">No dashboard access</h2>
+            <p className="mt-3 text-slate-600">
+              Your company role does not have permission to view this dashboard.
+            </p>
           </div>
+        )}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {leaseEndingSoon && (
-              <ActionCard
-                title="Lease ending soon"
-                text={`${leaseEndingSoon.tenant_name || "A tenant"} has a lease ending on ${
-                  leaseEndingSoon.lease_end_date
-                }.`}
-                href={`/dashboard/landlord/leases/${leaseEndingSoon.id}/renewal`}
-                button="Renewal Plan"
-              />
-            )}
-
-            {leasesNeedingSignature.length > 0 && (
-              <ActionCard
-                title="Sign lease"
-                text={`${leasesNeedingSignature.length} lease${
-                  leasesNeedingSignature.length === 1 ? "" : "s"
-                } waiting for your signature.`}
-                href={`/dashboard/landlord/leases/${leasesNeedingSignature[0].id}`}
-                button="Open Lease"
-              />
-            )}
-
-            {unpaidBalance > 0 && (
-              <ActionCard
-                title="Unpaid charges"
-                text={`${formatMoneyFromCents(unpaidBalance)} is currently unpaid.`}
-                href="/dashboard/landlord/payments"
-                button="Payments"
-              />
-            )}
-
-            {urgentMaintenance.length > 0 && (
-              <ActionCard
-                title="Urgent maintenance"
-                text={`${urgentMaintenance.length} urgent or emergency request${
-                  urgentMaintenance.length === 1 ? "" : "s"
-                }.`}
-                href="/dashboard/landlord/maintenance"
-                button="Open Requests"
-              />
-            )}
-
-            {screeningApprovedApplications.length > 0 && (
-              <ActionCard
-                title="Screening approved"
-                text={`${screeningApprovedApplications.length} tenant${
-                  screeningApprovedApplications.length === 1 ? " has" : "s have"
-                } approved screening consent.`}
-                href="#listings"
-                button="Applicants"
-              />
-            )}
-
-            {screeningRequestedApplications.length > 0 && (
-              <ActionCard
-                title="Screening pending"
-                text={`${screeningRequestedApplications.length} request${
-                  screeningRequestedApplications.length === 1 ? "" : "s"
-                } still pending.`}
-                href="#listings"
-                button="Applicants"
-              />
-            )}
-
-            {pendingListings > 0 && (
-              <ActionCard
-                title="Listings pending"
-                text={`${pendingListings} listing${
-                  pendingListings === 1 ? " is" : "s are"
-                } waiting for admin review.`}
-                href="#listings"
-                button="Listings"
-              />
-            )}
-
-            {rejectedListings > 0 && (
-              <ActionCard
-                title="Fix rejected listings"
-                text={`${rejectedListings} listing${
-                  rejectedListings === 1 ? " needs" : "s need"
-                } changes before resubmitting.`}
-                href="#listings"
-                button="Review"
-              />
-            )}
-
-            {leasesEndingSoon.length === 0 &&
-              leasesNeedingSignature.length === 0 &&
-              unpaidBalance === 0 &&
-              urgentMaintenance.length === 0 &&
-              pendingListings === 0 &&
-              rejectedListings === 0 &&
-              screeningApprovedApplications.length === 0 &&
-              screeningRequestedApplications.length === 0 && (
-                <div className="rounded-3xl bg-[#f7f4ef] p-5 md:col-span-2 xl:col-span-4">
-                  <h3 className="text-2xl font-black">All caught up</h3>
-                  <p className="mt-2 text-slate-600">
-                    No urgent maintenance, unpaid charges, lease signatures,
-                    lease renewals, or listing issues need attention right now.
-                  </p>
-                </div>
+        {canViewDashboardData && safeActiveTab === "overview" && (
+          <>
+            <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {canManagePayments && (
+                <DashboardCard
+                  title="Unpaid"
+                  value={formatMoneyFromCents(unpaidBalance)}
+                  text={`${unpaidCharges.length} unpaid charge${
+                    unpaidCharges.length === 1 ? "" : "s"
+                  }`}
+                  href="/dashboard/landlord/payments"
+                  urgent={unpaidBalance > 0}
+                />
               )}
-          </div>
-        </section>
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]">
-          <div
-            id="needs-signature"
-            className="rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+              {canViewMaintenance && (
+                <DashboardCard
+                  title="Maintenance"
+                  value={String(activeMaintenance.length)}
+                  text={`${urgentMaintenance.length} urgent · ${maintenanceRequests.length} total`}
+                  href={
+                    canManageMaintenance
+                      ? "/dashboard/landlord/maintenance"
+                      : undefined
+                  }
+                  urgent={urgentMaintenance.length > 0}
+                />
+              )}
+
+              {canViewListings && (
+                <DashboardCard
+                  title="Applications"
+                  value={String(totalApplications)}
+                  text={`${publishedListings} published listing${
+                    publishedListings === 1 ? "" : "s"
+                  }`}
+                  href="#listings"
+                />
+              )}
+
+              {canViewLeases && (
+                <DashboardCard
+                  title="Leases"
+                  value={String(leases.length)}
+                  text={`${leasesNeedingSignature.length} sign · ${completedLeases.length} done`}
+                  href="#leases"
+                  urgent={
+                    canManageLeases &&
+                    (leasesNeedingSignature.length > 0 ||
+                      leasesEndingSoon.length > 0)
+                  }
+                />
+              )}
+            </section>
+
+            <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                    Overview
+                  </p>
+
+                  <h2 className="mt-2 text-2xl font-black sm:text-3xl">
+                    Needs attention
+                  </h2>
+                </div>
+
+                {isPersonalLandlord || isFullCompanyManager(companyRole) ? (
+                  <Link
+                    href="/dashboard/landlord/profile"
+                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
+                  >
+                    Profile
+                  </Link>
+                ) : null}
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {canManageLeases && leaseEndingSoon && (
+                  <ActionCard
+                    title="Lease ending soon"
+                    text={`${
+                      leaseEndingSoon.tenant_name || "A tenant"
+                    } has a lease ending on ${leaseEndingSoon.lease_end_date}.`}
+                    href={`/dashboard/landlord/leases/${leaseEndingSoon.id}/renewal`}
+                    button="Renewal Plan"
+                  />
+                )}
+
+                {canManageLeases && leasesNeedingSignature.length > 0 && (
+                  <ActionCard
+                    title="Sign lease"
+                    text={`${leasesNeedingSignature.length} lease${
+                      leasesNeedingSignature.length === 1 ? "" : "s"
+                    } waiting for your signature.`}
+                    href={`/dashboard/landlord/leases/${leasesNeedingSignature[0].id}`}
+                    button="Open Lease"
+                  />
+                )}
+
+                {canManagePayments && unpaidBalance > 0 && (
+                  <ActionCard
+                    title="Unpaid charges"
+                    text={`${formatMoneyFromCents(
+                      unpaidBalance
+                    )} is currently unpaid.`}
+                    href="/dashboard/landlord/payments"
+                    button="Payments"
+                  />
+                )}
+
+                {canManageMaintenance && urgentMaintenance.length > 0 && (
+                  <ActionCard
+                    title="Urgent maintenance"
+                    text={`${urgentMaintenance.length} urgent or emergency request${
+                      urgentMaintenance.length === 1 ? "" : "s"
+                    }.`}
+                    href="/dashboard/landlord/maintenance"
+                    button="Open Requests"
+                  />
+                )}
+
+                {canManageApplications &&
+                  screeningApprovedApplications.length > 0 && (
+                    <ActionCard
+                      title="Screening approved"
+                      text={`${screeningApprovedApplications.length} tenant${
+                        screeningApprovedApplications.length === 1
+                          ? " has"
+                          : "s have"
+                      } approved screening consent.`}
+                      href="#listings"
+                      button="Applicants"
+                    />
+                  )}
+
+                {canManageApplications &&
+                  screeningRequestedApplications.length > 0 && (
+                    <ActionCard
+                      title="Screening pending"
+                      text={`${screeningRequestedApplications.length} request${
+                        screeningRequestedApplications.length === 1 ? "" : "s"
+                      } still pending.`}
+                      href="#listings"
+                      button="Applicants"
+                    />
+                  )}
+
+                {canManageListings && pendingListings > 0 && (
+                  <ActionCard
+                    title="Listings pending"
+                    text={`${pendingListings} listing${
+                      pendingListings === 1 ? " is" : "s are"
+                    } waiting for admin review.`}
+                    href="#listings"
+                    button="Listings"
+                  />
+                )}
+
+                {canManageListings && rejectedListings > 0 && (
+                  <ActionCard
+                    title="Fix rejected listings"
+                    text={`${rejectedListings} listing${
+                      rejectedListings === 1 ? " needs" : "s need"
+                    } changes before resubmitting.`}
+                    href="#listings"
+                    button="Review"
+                  />
+                )}
+
+                {leasesEndingSoon.length === 0 &&
+                  leasesNeedingSignature.length === 0 &&
+                  unpaidBalance === 0 &&
+                  urgentMaintenance.length === 0 &&
+                  pendingListings === 0 &&
+                  rejectedListings === 0 &&
+                  screeningApprovedApplications.length === 0 &&
+                  screeningRequestedApplications.length === 0 && (
+                    <div className="rounded-3xl bg-[#f7f4ef] p-5 md:col-span-2 xl:col-span-4">
+                      <h3 className="text-2xl font-black">All caught up</h3>
+                      <p className="mt-2 text-slate-600">
+                        No urgent maintenance, unpaid charges, lease signatures,
+                        lease renewals, or listing issues need attention right
+                        now.
+                      </p>
+                    </div>
+                  )}
+              </div>
+            </section>
+          </>
+        )}
+
+        {canViewListings && safeActiveTab === "listings" && (
+          <section
+            id="listings"
+            className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
           >
-            <SectionHeader title="Leases Needing Signature" />
+            <SectionHeader
+              title={hasCompany ? "Company Listings" : "Your Listings"}
+              badge={`${listings.length} total`}
+              href="/dashboard/landlord/properties"
+              hrefLabel="View All Listings"
+            />
 
-            {leasesNeedingSignature.length > 0 ? (
+            {recentListings.length > 0 ? (
               <div className="divide-y divide-slate-200">
-                {leasesNeedingSignature.map((lease) => (
-                  <LeaseSignatureRow key={lease.id} lease={lease} />
+                {recentListings.map((listing) => (
+                  <ListingRow
+                    key={listing.id}
+                    listing={listing}
+                    statusClass={statusClass}
+                    statusLabel={statusLabel}
+                    canManageListings={canManageListings}
+                    canManageApplications={canManageApplications}
+                  />
                 ))}
               </div>
             ) : (
               <EmptySection
-                title="No signatures needed"
-                text="When a tenant signs a lease, it will appear here for your final signature."
+                title="No listings yet"
+                text="Post your first rental listing to start receiving applications."
+                href={
+                  canManageListings
+                    ? "/dashboard/landlord/properties/new"
+                    : undefined
+                }
+                button={canManageListings ? "Post First Listing" : undefined}
               />
             )}
-          </div>
 
-          <div className="grid gap-6">
-            <MiniPanel
-              title="Payments"
-              value={formatMoneyFromCents(unpaidBalance)}
-              text={`${formatMoneyFromCents(paidTotal)} collected so far.`}
-              href="/dashboard/landlord/payments"
-              button="Open Payments"
-            />
+            {listings.length > recentListings.length && (
+              <div className="border-t border-slate-200 p-5 text-center">
+                <Link
+                  href="/dashboard/landlord/properties"
+                  className="inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                >
+                  View All {listings.length} Listings
+                </Link>
+              </div>
+            )}
+          </section>
+        )}
 
-            <MiniPanel
-              title="Maintenance"
-              value={`${activeMaintenance.length} active`}
-              text={`${urgentMaintenance.length} urgent request${
-                urgentMaintenance.length === 1 ? "" : "s"
-              }.`}
-              href="/dashboard/landlord/maintenance"
-              button="Open Maintenance"
-            />
-          </div>
-        </section>
+        {canViewLeases && safeActiveTab === "leases" && (
+          <div className="mt-6 grid gap-6">
+            {canManageLeases && (
+              <section className="rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+                <SectionHeader title="Leases Needing Signature" />
 
-        <section
-          id="leases"
-          className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
-        >
-          <SectionHeader
-            title="Recent Leases"
-            badge={`${sentLeases.length} sent`}
-            href="/dashboard/landlord/leases"
-          />
+                {leasesNeedingSignature.length > 0 ? (
+                  <div className="divide-y divide-slate-200">
+                    {leasesNeedingSignature.map((lease) => (
+                      <LeaseSignatureRow key={lease.id} lease={lease} />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptySection
+                    title="No signatures needed"
+                    text="When a tenant signs a lease, it will appear here for your final signature."
+                  />
+                )}
+              </section>
+            )}
 
-          {recentLeases.length > 0 ? (
-            <div className="divide-y divide-slate-200">
-              {recentLeases.map((lease) => (
-                <LeaseRow
-                  key={lease.id}
-                  lease={lease}
-                  leaseStatusClass={leaseStatusClass}
-                  leaseStatusLabel={leaseStatusLabel}
+            <section
+              id="leases"
+              className="rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+            >
+              <SectionHeader
+                title="Recent Leases"
+                badge={`${sentLeases.length} sent`}
+                href="/dashboard/landlord/leases"
+                hrefLabel="View All Leases"
+              />
+
+              {recentLeases.length > 0 ? (
+                <div className="divide-y divide-slate-200">
+                  {recentLeases.map((lease) => (
+                    <LeaseRow
+                      key={lease.id}
+                      lease={lease}
+                      leaseStatusClass={leaseStatusClass}
+                      leaseStatusLabel={leaseStatusLabel}
+                      canManageLeases={canManageLeases}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptySection
+                  title="No leases yet"
+                  text="Leases will appear here after they are created from approved applications."
                 />
-              ))}
+              )}
+
+              {leases.length > recentLeases.length && (
+                <div className="border-t border-slate-200 p-5 text-center">
+                  <Link
+                    href="/dashboard/landlord/leases"
+                    className="inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                  >
+                    View All {leases.length} Leases
+                  </Link>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {canManagePayments && safeActiveTab === "payments" && (
+          <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                  Payments
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black sm:text-3xl">
+                  Rent & Deposit Tracking
+                </h2>
+
+                <p className="mt-2 text-slate-600">
+                  Review unpaid balances, collected payments, and lease charges.
+                </p>
+              </div>
+
+              <Link
+                href="/dashboard/landlord/payments"
+                className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
+              >
+                View All Payments
+              </Link>
             </div>
-          ) : (
-            <EmptySection
-              title="No leases yet"
-              text="Leases will appear here after you create them from approved applications."
+
+            <div className="mt-6 grid gap-5 md:grid-cols-3">
+              <MiniStat
+                title="Unpaid Balance"
+                value={formatMoneyFromCents(unpaidBalance)}
+                text={`${unpaidCharges.length} unpaid charge${
+                  unpaidCharges.length === 1 ? "" : "s"
+                }`}
+                urgent={unpaidBalance > 0}
+              />
+
+              <MiniStat
+                title="Collected"
+                value={formatMoneyFromCents(paidTotal)}
+                text={`${paidCharges.length} paid charge${
+                  paidCharges.length === 1 ? "" : "s"
+                }`}
+              />
+
+              <MiniStat
+                title="Total Charges"
+                value={String(rentCharges.length)}
+                text="Across company leases"
+              />
+            </div>
+          </section>
+        )}
+
+        {canViewMaintenance && safeActiveTab === "maintenance" && (
+          <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+            <SectionHeader
+              title="Recent Maintenance"
+              badge={`${activeMaintenance.length} active`}
+              href={
+                canManageMaintenance
+                  ? "/dashboard/landlord/maintenance"
+                  : undefined
+              }
+              hrefLabel="View All Maintenance"
             />
-          )}
-        </section>
 
-        <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <SectionHeader
-            title="Recent Maintenance"
-            href="/dashboard/landlord/maintenance"
-          />
+            {recentMaintenance.length > 0 ? (
+              <div className="divide-y divide-slate-200">
+                {recentMaintenance.map((request) => (
+                  <MaintenanceRow
+                    key={request.id}
+                    request={request}
+                    canManageMaintenance={canManageMaintenance}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptySection
+                title="No maintenance requests"
+                text="Tenant repair requests will appear here."
+              />
+            )}
 
-          {recentMaintenance.length > 0 ? (
-            <div className="divide-y divide-slate-200">
-              {recentMaintenance.map((request) => (
-                <MaintenanceRow key={request.id} request={request} />
-              ))}
-            </div>
-          ) : (
-            <EmptySection
-              title="No maintenance requests"
-              text="Tenant repair requests will appear here."
-            />
-          )}
-        </section>
-
-        <section
-          id="listings"
-          className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
-        >
-          <SectionHeader
-            title={hasCompany ? "Company Listings" : "Your Listings"}
-            href="/dashboard/landlord/properties/new"
-            hrefLabel="Post New"
-          />
-
-          {recentListings.length > 0 ? (
-            <div className="divide-y divide-slate-200">
-              {recentListings.map((listing) => (
-                <ListingRow
-                  key={listing.id}
-                  listing={listing}
-                  statusClass={statusClass}
-                  statusLabel={statusLabel}
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptySection
-              title="No listings yet"
-              text="Post your first rental listing to start receiving applications."
-              href="/dashboard/landlord/properties/new"
-              button="Post First Listing"
-            />
-          )}
-
-          {listings.length > recentListings.length && (
-            <div className="border-t border-slate-200 p-5 text-center">
-              <p className="text-sm font-bold text-slate-500">
-                Showing latest {recentListings.length} of {listings.length} listings.
-              </p>
-            </div>
-          )}
-        </section>
+            {maintenanceRequests.length > recentMaintenance.length &&
+              canManageMaintenance && (
+                <div className="border-t border-slate-200 p-5 text-center">
+                  <Link
+                    href="/dashboard/landlord/maintenance"
+                    className="inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                  >
+                    View All {maintenanceRequests.length} Maintenance Requests
+                  </Link>
+                </div>
+              )}
+          </section>
+        )}
       </div>
     </main>
   );
@@ -861,6 +1141,30 @@ function QuickLink({ href, label }: { href: string; label: string }) {
     >
       {label}
     </Link>
+  );
+}
+
+function TabButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl px-4 py-3 text-sm font-black ring-1 ${
+        active
+          ? "bg-slate-950 text-white ring-slate-950"
+          : "bg-white text-slate-700 ring-slate-200"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -896,6 +1200,34 @@ function DashboardCard({
   return <Link href={href}>{card}</Link>;
 }
 
+function MiniStat({
+  title,
+  value,
+  text,
+  urgent = false,
+}: {
+  title: string;
+  value: string;
+  text: string;
+  urgent?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-3xl p-5 ring-1 ${
+        urgent ? "bg-yellow-50 ring-yellow-200" : "bg-[#f7f4ef] ring-slate-200"
+      }`}
+    >
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+        {title}
+      </p>
+
+      <p className="mt-3 text-3xl font-black">{value}</p>
+
+      <p className="mt-2 text-sm font-bold text-slate-500">{text}</p>
+    </div>
+  );
+}
+
 function ActionCard({
   title,
   text,
@@ -915,37 +1247,6 @@ function ActionCard({
       <Link
         href={href}
         className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        {button}
-      </Link>
-    </div>
-  );
-}
-
-function MiniPanel({
-  title,
-  value,
-  text,
-  href,
-  button,
-}: {
-  title: string;
-  value: string;
-  text: string;
-  href: string;
-  button: string;
-}) {
-  return (
-    <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
-      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-        {title}
-      </p>
-      <p className="mt-3 text-3xl font-black sm:text-4xl">{value}</p>
-      <p className="mt-2 font-bold text-slate-500">{text}</p>
-
-      <Link
-        href={href}
-        className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
       >
         {button}
       </Link>
@@ -1032,10 +1333,12 @@ function LeaseRow({
   lease,
   leaseStatusClass,
   leaseStatusLabel,
+  canManageLeases,
 }: {
   lease: LandlordLease;
   leaseStatusClass: (status: string) => string;
   leaseStatusLabel: (status: string) => string;
+  canManageLeases: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
@@ -1068,26 +1371,34 @@ function LeaseRow({
         </p>
       </div>
 
-      <div className="grid gap-3 sm:flex sm:flex-row">
-        <Link
-          href={`/dashboard/landlord/leases/${lease.id}/renewal`}
-          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-        >
-          Renewal
-        </Link>
+      {canManageLeases && (
+        <div className="grid gap-3 sm:flex sm:flex-row">
+          <Link
+            href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+            className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+          >
+            Renewal
+          </Link>
 
-        <Link
-          href={`/dashboard/landlord/leases/${lease.id}`}
-          className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-        >
-          View
-        </Link>
-      </div>
+          <Link
+            href={`/dashboard/landlord/leases/${lease.id}`}
+            className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+          >
+            View
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
 
-function MaintenanceRow({ request }: { request: MaintenanceRequest }) {
+function MaintenanceRow({
+  request,
+  canManageMaintenance,
+}: {
+  request: MaintenanceRequest;
+  canManageMaintenance: boolean;
+}) {
   return (
     <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
       <div>
@@ -1114,12 +1425,14 @@ function MaintenanceRow({ request }: { request: MaintenanceRequest }) {
         </p>
       </div>
 
-      <Link
-        href="/dashboard/landlord/maintenance"
-        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-      >
-        Open
-      </Link>
+      {canManageMaintenance && (
+        <Link
+          href="/dashboard/landlord/maintenance"
+          className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+        >
+          Open
+        </Link>
+      )}
     </div>
   );
 }
@@ -1128,10 +1441,14 @@ function ListingRow({
   listing,
   statusClass,
   statusLabel,
+  canManageListings,
+  canManageApplications,
 }: {
   listing: PropertyWithApplications;
   statusClass: (status: string) => string;
   statusLabel: (status: string) => string;
+  canManageListings: boolean;
+  canManageApplications: boolean;
 }) {
   return (
     <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
@@ -1195,25 +1512,29 @@ function ListingRow({
           </Link>
         )}
 
-        <Link
-          href={`/dashboard/landlord/properties/${listing.id}/edit`}
-          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-        >
-          Edit
-        </Link>
+        {canManageListings && (
+          <Link
+            href={`/dashboard/landlord/properties/${listing.id}/edit`}
+            className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+          >
+            Edit
+          </Link>
+        )}
 
-        {listing.status === "rejected" && (
+        {canManageListings && listing.status === "rejected" && (
           <ResubmitListingButton propertyId={listing.id} />
         )}
 
-        <ArchiveListingButton propertyId={listing.id} />
+        {canManageListings && <ArchiveListingButton propertyId={listing.id} />}
 
-        <Link
-          href={`/dashboard/landlord/properties/${listing.id}/applications`}
-          className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-        >
-          Applicants
-        </Link>
+        {canManageApplications && (
+          <Link
+            href={`/dashboard/landlord/properties/${listing.id}/applications`}
+            className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+          >
+            Applicants
+          </Link>
+        )}
       </div>
     </div>
   );
