@@ -740,23 +740,45 @@ export default function AdminPage() {
         )}
 
         <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
-          <StatCard title="Users" value={profiles.length} />
-          <StatCard title="Listings" value={properties.length} />
-          <StatCard title="Applications" value={applications.length} />
-          <StatCard title="Leases" value={leases.length} />
-          <StatCard title="Renewals" value={leaseRenewalRequests.length} />
-          <StatCard title="Maintenance" value={maintenanceRequests.length} />
-          <StatCard title="Screenings" value={screeningRequests.length} />
-          <StatCard title="Rent Charges" value={rentCharges.length} />
-          <StatCard
-            title="Pending Listings"
-            value={dashboardData.pendingListings.length}
-          />
-          <StatCard
-            title="Unpaid"
-            value={formatMoneyFromCents(dashboardData.unpaidBalance)}
-          />
-        </section>
+  <StatCard title="Users" value={profiles.length} href="/admin/users" />
+  <StatCard title="Listings" value={properties.length} href="/admin/listings" />
+  <StatCard
+    title="Applications"
+    value={applications.length}
+    href="/admin/applications"
+  />
+  <StatCard title="Leases" value={leases.length} href="/admin/leases" />
+  <StatCard
+    title="Renewals"
+    value={leaseRenewalRequests.length}
+    href="/admin/renewals"
+  />
+  <StatCard
+    title="Maintenance"
+    value={maintenanceRequests.length}
+    href="/admin/maintenance"
+  />
+  <StatCard
+    title="Screenings"
+    value={screeningRequests.length}
+    href="/admin/screenings"
+  />
+  <StatCard
+    title="Rent Charges"
+    value={rentCharges.length}
+    href="/admin/payments"
+  />
+  <StatCard
+    title="Pending Listings"
+    value={dashboardData.pendingListings.length}
+    href="/admin/listings"
+  />
+  <StatCard
+    title="Unpaid"
+    value={formatMoneyFromCents(dashboardData.unpaidBalance)}
+    href="/admin/payments"
+  />
+</section>
 
         <section className="mt-8 rounded-[2rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
           <div className="flex gap-2 overflow-x-auto p-2">
@@ -945,11 +967,31 @@ export default function AdminPage() {
               id="renewals"
               className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
             >
-              <SectionHeader
-                title="Renewals & Move-Outs"
-                text="Track tenant renewal requests, move-out plans, landlord offers, and completed renewal leases."
-                badge={`${leaseRenewalRequests.length} updates`}
-              />
+              <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Renewals & Move-Outs</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Track tenant renewal requests, move-out plans, landlord offers, and
+        completed renewal leases. Use the full renewals page for search,
+        filters, and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {leaseRenewalRequests.length} updates
+      </span>
+
+      <Link
+        href="/admin/renewals"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Renewals
+      </Link>
+    </div>
+  </div>
+</div>
 
               <div className="grid gap-5 border-b border-slate-200 p-6 md:grid-cols-2 xl:grid-cols-5">
                 <StatCard
@@ -1132,11 +1174,31 @@ export default function AdminPage() {
         {activeTab === "operations" && (
           <>
             <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <SectionHeader
-                title="Recent Screening Requests"
-                text="Track tenant consent for future TransUnion/background integrations."
-                badge={`${dashboardData.pendingScreenings.length} pending`}
-              />
+              <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Recent Screening Requests</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Track tenant consent for future TransUnion/background integrations. Use
+        the full screenings page for search, status filters, type filters, and
+        pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {dashboardData.pendingScreenings.length} pending
+      </span>
+
+      <Link
+        href="/admin/screenings"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Screenings
+      </Link>
+    </div>
+  </div>
+</div>
 
               {screeningRequests.length > 0 ? (
                 <div className="divide-y divide-slate-200">
@@ -1168,11 +1230,30 @@ export default function AdminPage() {
             </section>
 
             <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <SectionHeader
-                title="Recent Rent / Deposit Charges"
-                text="Review charges created for leases."
-                badge={`${dashboardData.unpaidCharges.length} unpaid`}
-              />
+              <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Recent Rent / Deposit Charges</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Review charges created for leases. Use the full payments page for
+        search, status filters, charge type filters, and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {dashboardData.unpaidCharges.length} unpaid
+      </span>
+
+      <Link
+        href="/admin/payments"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Payments
+      </Link>
+    </div>
+  </div>
+</div>
 
               {rentCharges.length > 0 ? (
                 <div className="divide-y divide-slate-200">
@@ -1189,11 +1270,30 @@ export default function AdminPage() {
             </section>
 
             <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <SectionHeader
-                title="Recent Maintenance"
-                text="Monitor active tenant repair requests."
-                badge={`${dashboardData.activeMaintenance.length} active`}
-              />
+              <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Recent Maintenance</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Monitor active tenant repair requests. Use the full maintenance page
+        for search, status filters, priority filters, and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {dashboardData.activeMaintenance.length} active
+      </span>
+
+      <Link
+        href="/admin/maintenance"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Maintenance
+      </Link>
+    </div>
+  </div>
+</div>
 
               {maintenanceRequests.length > 0 ? (
                 <div className="divide-y divide-slate-200">
@@ -1293,13 +1393,38 @@ export default function AdminPage() {
   );
 }
 
-function StatCard({ title, value }: { title: string; value: string | number }) {
-  return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+function StatCard({
+  title,
+  value,
+  href,
+}: {
+  title: string;
+  value: string | number;
+  href?: string;
+}) {
+  const content = (
+    <>
       <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
         {title}
       </p>
       <p className="mt-3 text-4xl font-black">{value}</p>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      {content}
     </div>
   );
 }
