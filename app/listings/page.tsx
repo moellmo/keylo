@@ -24,6 +24,8 @@ type Property = {
   status: string;
   created_at: string;
   property_photos: PropertyPhoto[];
+  latitude: number | null;
+longitude: number | null;
 };
 
 export default async function ListingsPage() {
@@ -44,6 +46,8 @@ export default async function ListingsPage() {
       available_date,
       description,
       pet_policy,
+      latitude,
+longitude,
       status,
       created_at,
       property_photos (
