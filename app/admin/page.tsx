@@ -1195,11 +1195,30 @@ export default function AdminPage() {
 
         {activeTab === "users" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <SectionHeader
-              title="Users"
-              text="Showing latest 50 users. We can add full pagination/search later."
-              badge={`${profiles.length} loaded`}
-            />
+            <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Users</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Showing latest 50 users. Use the full users page for search, filters,
+        and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {profiles.length} loaded
+      </span>
+
+      <Link
+        href="/admin/users"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Users
+      </Link>
+    </div>
+  </div>
+</div>
 
             {profiles.length > 0 ? (
               <div className="divide-y divide-slate-200">
