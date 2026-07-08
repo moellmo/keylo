@@ -532,12 +532,12 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
       </div>
 
       {viewMode === "map" ? (
-        <section className="mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
-          <div className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-[#ded6c8]">
-            <div ref={mapRef} className="h-[520px] w-full" />
-          </div>
+        <section className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+  <div className="min-w-0 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-[#ded6c8]">
+    <div ref={mapRef} className="h-[520px] w-full" />
+  </div>
 
-          <div className="grid max-h-[520px] gap-4 overflow-y-auto pr-1">
+  <div className="grid min-w-0 gap-4 overflow-y-auto pr-1 xl:max-h-[520px]">
             {mapError && (
               <div className="rounded-3xl bg-red-50 p-5 font-bold text-red-700 ring-1 ring-red-200">
                 {mapError}
@@ -662,12 +662,11 @@ function SmallListingCard({ listing }: { listing: Property }) {
   return (
     <Link
       href={`/listings/${listing.id}`}
-      className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#ded6c8]"
+      className="min-w-0 overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#ded6c8] transition hover:-translate-y-0.5 hover:shadow-md"
     >
-      <div className="grid grid-cols-[110px_1fr]">
-        <div className="h-full min-h-[130px] bg-[#e8ddca]">
+      <div className="grid grid-cols-[92px_minmax(0,1fr)] sm:grid-cols-[110px_minmax(0,1fr)]">
+        <div className="h-full min-h-[118px] bg-[#e8ddca]">
           {firstPhoto ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={firstPhoto}
               alt={listing.title}
@@ -680,10 +679,12 @@ function SmallListingCard({ listing }: { listing: Property }) {
           )}
         </div>
 
-        <div className="p-4">
-          <h3 className="font-black">{listing.title}</h3>
+        <div className="min-w-0 p-4">
+          <h3 className="line-clamp-2 font-black leading-5">
+            {listing.title}
+          </h3>
 
-          <p className="mt-1 text-sm font-bold text-[#63708a]">
+          <p className="mt-1 truncate text-sm font-bold text-[#63708a]">
             {[listing.city, listing.state].filter(Boolean).join(", ")}
           </p>
 
@@ -691,7 +692,7 @@ function SmallListingCard({ listing }: { listing: Property }) {
             {formatMoney(listing.monthly_rent)}
           </p>
 
-          <p className="mt-2 text-xs font-bold text-[#6f7b91]">
+          <p className="mt-2 truncate text-xs font-bold text-[#6f7b91]">
             {formatRoom(listing.bedrooms, "bed", "beds")} ·{" "}
             {formatRoom(listing.bathrooms, "bath", "baths")}
           </p>
