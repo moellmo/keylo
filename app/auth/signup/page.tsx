@@ -1,16 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type UserRole = "tenant" | "landlord";
 
+function safeNextPath(next: string | null) {
+  if (!next) return null;
+
+  if (!next.startsWith("/")) return null;
+  if (next.startsWith("//")) return null;
+
+  return next;
+}
+
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [role, setRole] = useState<UserRole>("tenant");
+  const nextPath = safeNextPath(searchParams.get("next"));
+  const isCompanyInvite = !!nextPath?.startsWith("/company-invites/");
+
+  const [role, setRole] = useState<UserRole>(
+    isCompanyInvite ? "landlord" : "tenant"
+  );
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,13 +49,15 @@ export default function SignupPage() {
       return;
     }
 
+    const finalRole: UserRole = isCompanyInvite ? "landlord" : role;
+
     const { data: signupData, error: signupError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: {
         data: {
           full_name: fullName.trim(),
-          role,
+          role: finalRole,
         },
       },
     });
@@ -59,11 +76,11 @@ export default function SignupPage() {
       return;
     }
 
-    const { error: profileError } = await supabase.from("profiles").insert({
+    const { error: profileError } = await supabase.from("profiles").upsert({
       id: user.id,
       email: email.trim(),
       full_name: fullName.trim(),
-      role,
+      role: finalRole,
     });
 
     if (profileError) {
@@ -76,7 +93,12 @@ export default function SignupPage() {
 
     setMessage("Account created successfully.");
 
-    if (role === "landlord") {
+    if (nextPath) {
+      router.push(nextPath);
+      return;
+    }
+
+    if (finalRole === "landlord") {
       router.push("/dashboard/landlord");
       return;
     }
@@ -98,7 +120,9 @@ export default function SignupPage() {
             </h1>
 
             <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-              Choose the account type that matches how you want to use Keylo.
+              {isCompanyInvite
+                ? "Create your account to accept this landlord company invite."
+                : "Choose the account type that matches how you want to use Keylo."}
             </p>
 
             {message && (
@@ -107,46 +131,56 @@ export default function SignupPage() {
               </div>
             )}
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setRole("tenant")}
-                className={`rounded-3xl border p-6 text-left transition ${
-                  role === "tenant"
-                    ? "border-slate-950 bg-slate-950 text-white"
-                    : "border-slate-200 bg-white text-slate-950 hover:border-slate-400"
-                }`}
-              >
-                <p className="text-xl font-black">I’m a Tenant</p>
-                <p
-                  className={`mt-2 text-sm leading-6 ${
-                    role === "tenant" ? "text-slate-200" : "text-slate-600"
+            {isCompanyInvite ? (
+              <div className="mt-8 rounded-3xl bg-blue-50 p-6 text-blue-900 ring-1 ring-blue-200">
+                <p className="text-xl font-black">Landlord Team Invite</p>
+                <p className="mt-2 text-sm leading-6">
+                  This account will be created as a landlord account so you can
+                  join the company team after signup.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-8 grid gap-4 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setRole("tenant")}
+                  className={`rounded-3xl border p-6 text-left transition ${
+                    role === "tenant"
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-200 bg-white text-slate-950 hover:border-slate-400"
                   }`}
                 >
-                  Browse rentals, save listings, apply online, and track your
-                  applications.
-                </p>
-              </button>
+                  <p className="text-xl font-black">I’m a Tenant</p>
+                  <p
+                    className={`mt-2 text-sm leading-6 ${
+                      role === "tenant" ? "text-slate-200" : "text-slate-600"
+                    }`}
+                  >
+                    Browse rentals, save listings, apply online, and track your
+                    applications.
+                  </p>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setRole("landlord")}
-                className={`rounded-3xl border p-6 text-left transition ${
-                  role === "landlord"
-                    ? "border-slate-950 bg-slate-950 text-white"
-                    : "border-slate-200 bg-white text-slate-950 hover:border-slate-400"
-                }`}
-              >
-                <p className="text-xl font-black">I’m a Landlord</p>
-                <p
-                  className={`mt-2 text-sm leading-6 ${
-                    role === "landlord" ? "text-slate-200" : "text-slate-600"
+                <button
+                  type="button"
+                  onClick={() => setRole("landlord")}
+                  className={`rounded-3xl border p-6 text-left transition ${
+                    role === "landlord"
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-200 bg-white text-slate-950 hover:border-slate-400"
                   }`}
                 >
-                  Post rentals, manage listings, and review tenant applications.
-                </p>
-              </button>
-            </div>
+                  <p className="text-xl font-black">I’m a Landlord</p>
+                  <p
+                    className={`mt-2 text-sm leading-6 ${
+                      role === "landlord" ? "text-slate-200" : "text-slate-600"
+                    }`}
+                  >
+                    Post rentals, manage listings, and review tenant applications.
+                  </p>
+                </button>
+              </div>
+            )}
 
             <div className="mt-8 grid gap-5">
               <div>
@@ -194,14 +228,23 @@ export default function SignupPage() {
             >
               {saving
                 ? "Creating account..."
-                : role === "landlord"
-                ? "Create Landlord Account"
-                : "Create Tenant Account"}
+                : isCompanyInvite
+                  ? "Create Account & Continue to Invite"
+                  : role === "landlord"
+                    ? "Create Landlord Account"
+                    : "Create Tenant Account"}
             </button>
 
             <p className="mt-6 text-center text-sm font-bold text-slate-500">
               Already have an account?{" "}
-              <Link href="/auth/login" className="text-slate-950 underline">
+              <Link
+                href={
+                  nextPath
+                    ? `/auth/login?next=${encodeURIComponent(nextPath)}`
+                    : "/auth/login"
+                }
+                className="text-slate-950 underline"
+              >
                 Login
               </Link>
             </p>
@@ -232,9 +275,10 @@ export default function SignupPage() {
               </div>
 
               <div className="rounded-3xl bg-white/10 p-5">
-                <p className="font-black">Admins</p>
+                <p className="font-black">Company Teams</p>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Approve, reject, and manage marketplace quality.
+                  Join a landlord company to help manage listings,
+                  applications, leases, payments, and maintenance.
                 </p>
               </div>
             </div>
