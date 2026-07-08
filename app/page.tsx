@@ -1,37 +1,58 @@
-import Link from "next/link";
+"use client";
 
-const sampleListings = [
-  {
-    id: "1",
-    title: "Modern 3 Bedroom Home",
-    location: "Monroe, NY",
-    price: "$2,850/mo",
-    beds: "3 beds",
-    baths: "2 baths",
-  },
-  {
-    id: "2",
-    title: "Renovated Apartment Near Shops",
-    location: "Kiryas Joel, NY",
-    price: "$2,200/mo",
-    beds: "2 beds",
-    baths: "1.5 baths",
-  },
-  {
-    id: "3",
-    title: "Spacious Family Rental",
-    location: "Spring Valley, NY",
-    price: "$3,400/mo",
-    beds: "4 beds",
-    baths: "2.5 baths",
-  },
-];
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
+type FeaturedListing = {
+  id: string;
+  title: string;
+  monthly_rent: number | null;
+  city: string | null;
+  state: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+};
 
 export default function Home() {
+  const [featuredListings, setFeaturedListings] = useState<FeaturedListing[]>(
+    []
+  );
+  const [loadingListings, setLoadingListings] = useState(true);
+
+  useEffect(() => {
+    async function loadFeaturedListings() {
+      setLoadingListings(true);
+
+      const { data, error } = await supabase
+        .from("properties")
+        .select(
+          `
+          id,
+          title,
+          monthly_rent,
+          city,
+          state,
+          bedrooms,
+          bathrooms
+        `
+        )
+        .eq("status", "published")
+        .order("created_at", { ascending: false })
+        .limit(3);
+
+      if (!error && data) {
+        setFeaturedListings(data as FeaturedListing[]);
+      }
+
+      setLoadingListings(false);
+    }
+
+    loadFeaturedListings();
+  }, []);
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      
-
       <section className="mx-auto grid max-w-7xl gap-10 px-6 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center md:py-24">
         <div>
           <div className="mb-5 inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm">
@@ -55,6 +76,7 @@ export default function Home() {
             >
               Browse Rentals
             </Link>
+
             <Link
               href="/dashboard/landlord/properties/new"
               className="rounded-full border border-slate-300 bg-white px-7 py-4 text-center text-base font-black text-slate-950"
@@ -71,37 +93,80 @@ export default function Home() {
             </p>
 
             <div className="mt-6 space-y-4">
-              {sampleListings.map((listing) => (
-                <Link
-                  key={listing.id}
-                  href={`/listings/${listing.id}`}
-                  className="block rounded-2xl bg-white p-5 text-slate-950"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-black">{listing.title}</h3>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
-                        {listing.location}
+              {loadingListings ? (
+                <>
+                  {[1, 2, 3].map((item) => (
+                    <div
+                      key={item}
+                      className="h-28 animate-pulse rounded-2xl bg-white/20"
+                    />
+                  ))}
+                </>
+              ) : featuredListings.length > 0 ? (
+                featuredListings.map((listing) => (
+                  <Link
+                    key={listing.id}
+                    href={`/listings/${listing.id}`}
+                    className="block rounded-2xl bg-white p-5 text-slate-950 transition hover:-translate-y-0.5 hover:shadow-lg"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-black">{listing.title}</h3>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-500">
+                          {[listing.city, listing.state]
+                            .filter(Boolean)
+                            .join(", ") || "Location available soon"}
+                        </p>
+                      </div>
+
+                      <p className="shrink-0 text-sm font-black">
+                        {listing.monthly_rent
+                          ? `$${listing.monthly_rent.toLocaleString()}/mo`
+                          : "Contact"}
                       </p>
                     </div>
-                    <p className="shrink-0 text-sm font-black">
-                      {listing.price}
-                    </p>
-                  </div>
 
-                  <div className="mt-4 flex gap-2 text-xs font-bold text-slate-600">
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      {listing.beds}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      {listing.baths}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Verified
-                    </span>
-                  </div>
-                </Link>
-              ))}
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold text-slate-600">
+                      {listing.bedrooms !== null && (
+                        <span className="rounded-full bg-slate-100 px-3 py-1">
+                          {listing.bedrooms}{" "}
+                          {listing.bedrooms === 1 ? "bed" : "beds"}
+                        </span>
+                      )}
+
+                      {listing.bathrooms !== null && (
+                        <span className="rounded-full bg-slate-100 px-3 py-1">
+                          {listing.bathrooms}{" "}
+                          {listing.bathrooms === 1 ? "bath" : "baths"}
+                        </span>
+                      )}
+
+                      <span className="rounded-full bg-slate-100 px-3 py-1">
+                        Verified
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              ) : (
+                <div className="rounded-2xl bg-white p-6 text-slate-950">
+                  <h3 className="text-xl font-black">
+                    No featured rentals yet
+                  </h3>
+
+                  <p className="mt-3 leading-7 text-slate-600">
+                    Published rentals will appear here automatically once
+                    listings are approved.
+                  </p>
+
+                  <Link
+                    href="/dashboard/landlord/properties/new"
+                    className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                  >
+                    Post the First Listing
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -112,9 +177,11 @@ export default function Home() {
           <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
             Phase 1 MVP
           </p>
+
           <h2 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
             Built first as a real rental website.
           </h2>
+
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
             The first version focuses on the core marketplace: public listings,
             landlord posting tools, tenant applications, and dashboards.
@@ -125,16 +192,17 @@ export default function Home() {
               "Verified rental listings",
               "Tenant applications",
               "Landlord dashboard",
-              "Future screening, lease signing, and rent collection",
+              "Lease signing and messages",
             ].map((item) => (
               <div
                 key={item}
                 className="rounded-3xl border border-slate-200 bg-[#f7f4ef] p-6"
               >
                 <h3 className="text-xl font-black">{item}</h3>
+
                 <p className="mt-3 leading-7 text-slate-600">
-                  Keylo Phase 1 starts with the tools needed to prove the
-                  marketplace before adding advanced features.
+                  Keylo gives landlords and tenants the core tools needed to
+                  list, apply, communicate, and manage rentals in one place.
                 </p>
               </div>
             ))}
