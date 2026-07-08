@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type Conversation = {
@@ -35,6 +36,15 @@ type MessageRow = {
   conversation_id: string;
 };
 
+type PropertyForConversation = {
+  id: string;
+  title: string | null;
+  city: string | null;
+  state: string | null;
+  landlord_id: string | null;
+  landlord_company_id: string | null;
+};
+
 function getProperty(conversation: Conversation) {
   if (Array.isArray(conversation.properties)) {
     return conversation.properties[0] || null;
@@ -43,8 +53,23 @@ function getProperty(conversation: Conversation) {
   return conversation.properties;
 }
 
-export default function TenantMessagesPage() {
+function getConversationTime(conversation: Conversation) {
+  const rawDate = conversation.last_message_at || conversation.created_at;
+
+  if (!rawDate) return "";
+
+  return new Date(rawDate).toLocaleString();
+}
+
+function TenantMessagesPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const propertyId = searchParams.get("propertyId");
+  const landlordId = searchParams.get("landlordId");
+
   const [loading, setLoading] = useState(true);
+  const [openingConversation, setOpeningConversation] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [message, setMessage] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -54,7 +79,84 @@ export default function TenantMessagesPage() {
 
   useEffect(() => {
     loadMessages();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, landlordId]);
+
+  async function openOrCreateListingConversation(userId: string) {
+    if (!propertyId || !landlordId) return false;
+
+    setOpeningConversation(true);
+
+    const { data: propertyData, error: propertyError } = await supabase
+      .from("properties")
+      .select("id, title, city, state, landlord_id, landlord_company_id")
+      .eq("id", propertyId)
+      .eq("status", "published")
+      .single();
+
+    if (propertyError || !propertyData) {
+      setMessage("Could not open a conversation for this listing.");
+      setOpeningConversation(false);
+      return false;
+    }
+
+    const property = propertyData as PropertyForConversation;
+
+    if (!property.landlord_id || property.landlord_id !== landlordId) {
+      setMessage("This listing is not available for landlord messaging.");
+      setOpeningConversation(false);
+      return false;
+    }
+
+    const { data: existingConversation, error: existingError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("tenant_id", userId)
+      .eq("landlord_id", landlordId)
+      .eq("property_id", propertyId)
+      .maybeSingle();
+
+    if (existingError) {
+      setMessage(existingError.message);
+      setOpeningConversation(false);
+      return false;
+    }
+
+    if (existingConversation?.id) {
+      router.replace(`/dashboard/messages/${existingConversation.id}`);
+      return true;
+    }
+
+    const subject = property.title
+      ? `Question about ${property.title}`
+      : "Question about this rental";
+
+    const { data: newConversation, error: createError } = await supabase
+      .from("conversations")
+      .insert({
+        tenant_id: userId,
+        landlord_id: landlordId,
+        landlord_company_id: property.landlord_company_id,
+        property_id: propertyId,
+        application_id: null,
+        subject,
+        last_message: null,
+        last_message_at: null,
+      })
+      .select("id")
+      .single();
+
+    if (createError || !newConversation) {
+      setMessage(
+        createError?.message || "Could not create a conversation for this listing."
+      );
+      setOpeningConversation(false);
+      return false;
+    }
+
+    router.replace(`/dashboard/messages/${newConversation.id}`);
+    return true;
+  }
 
   async function loadMessages() {
     setLoading(true);
@@ -82,6 +184,12 @@ export default function TenantMessagesPage() {
       setAllowed(false);
       setLoading(false);
       return;
+    }
+
+    if (profile?.role !== "admin" && propertyId && landlordId) {
+      const opened = await openOrCreateListingConversation(user.id);
+
+      if (opened) return;
     }
 
     let conversationQuery = supabase
@@ -151,15 +259,22 @@ export default function TenantMessagesPage() {
     setUnreadConversationIds(unreadIds);
     setAllowed(true);
     setLoading(false);
+    setOpeningConversation(false);
   }
 
-  if (loading) {
+  if (loading || openingConversation) {
     return (
       <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-2xl font-black sm:text-3xl">
-            Loading messages...
+            {openingConversation ? "Opening conversation..." : "Loading messages..."}
           </h1>
+
+          {openingConversation && (
+            <p className="mt-3 font-bold text-slate-600">
+              Connecting you with the landlord for this rental.
+            </p>
+          )}
         </div>
       </main>
     );
@@ -205,8 +320,8 @@ export default function TenantMessagesPage() {
             </h1>
 
             <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-              View conversations with landlords about your applications and
-              rentals.
+              View conversations with landlords about listings, applications,
+              and rentals.
             </p>
           </div>
 
@@ -265,11 +380,7 @@ export default function TenantMessagesPage() {
                       </div>
 
                       <p className="text-sm font-bold text-slate-500">
-                        {conversation.last_message_at
-                          ? new Date(
-                              conversation.last_message_at
-                            ).toLocaleString()
-                          : new Date(conversation.created_at).toLocaleString()}
+                        {getConversationTime(conversation)}
                       </p>
                     </div>
                   </Link>
@@ -281,8 +392,8 @@ export default function TenantMessagesPage() {
               <h2 className="text-2xl font-black">No messages yet</h2>
 
               <p className="mt-3 text-slate-600">
-                When a landlord messages you about an application, it will
-                appear here.
+                When you message a landlord about a rental, the conversation
+                will appear here.
               </p>
 
               <Link
@@ -296,5 +407,22 @@ export default function TenantMessagesPage() {
         </div>
       </div>
     </main>
+  );
+}
+export default function TenantMessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
+          <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+            <h1 className="text-2xl font-black sm:text-3xl">
+              Loading messages...
+            </h1>
+          </div>
+        </main>
+      }
+    >
+      <TenantMessagesPageContent />
+    </Suspense>
   );
 }

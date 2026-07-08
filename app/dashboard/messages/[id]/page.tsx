@@ -20,14 +20,22 @@ type Conversation = {
     | {
         id: string;
         title: string | null;
+        monthly_rent: number | null;
         city: string | null;
         state: string | null;
+        zip_code: string | null;
+        bedrooms: string | null;
+        bathrooms: string | null;
       }
     | {
         id: string;
         title: string | null;
+        monthly_rent: number | null;
         city: string | null;
         state: string | null;
+        zip_code: string | null;
+        bedrooms: string | null;
+        bathrooms: string | null;
       }[]
     | null;
 };
@@ -64,6 +72,26 @@ function getProperty(conversation: Conversation) {
 
 function canUseCompanyMessages(role: string) {
   return role === "owner" || role === "admin" || role === "manager";
+}
+
+function formatMoney(value: number | null) {
+  if (!value) return "Rent not listed";
+
+  return `$${Number(value).toLocaleString()}/mo`;
+}
+
+function formatRoom(value: string | null, singular: string, plural: string) {
+  if (!value) return `— ${plural}`;
+
+  if (value.toLowerCase() === "studio") return "Studio";
+
+  return `${value} ${value === "1" ? singular : plural}`;
+}
+
+function getLocation(property: NonNullable<ReturnType<typeof getProperty>>) {
+  return [property.city, property.state, property.zip_code]
+    .filter(Boolean)
+    .join(", ");
 }
 
 export default function MessageThreadPage() {
@@ -132,8 +160,12 @@ export default function MessageThreadPage() {
         properties (
           id,
           title,
+          monthly_rent,
           city,
-          state
+          state,
+          zip_code,
+          bedrooms,
+          bathrooms
         )
       `
       )
@@ -156,10 +188,7 @@ export default function MessageThreadPage() {
     let isCompanyMessenger = false;
     let currentCompanyRole = "";
 
-    if (
-      !isTenant &&
-      conversationData.landlord_company_id
-    ) {
+    if (!isTenant && conversationData.landlord_company_id) {
       const { data: membership, error: membershipError } = await supabase
         .from("landlord_company_members")
         .select("company_id, role")
@@ -220,9 +249,24 @@ export default function MessageThreadPage() {
 
     window.dispatchEvent(new Event("keylo-messages-read"));
 
+    const loadedMessages = (messageRows || []) as Message[];
+    const property = getProperty(conversationData);
+
     setConversation(conversationData);
     setCompanyRole(currentCompanyRole);
-    setMessages((messageRows || []) as Message[]);
+    setMessages(loadedMessages);
+
+    if (
+      loadedMessages.length === 0 &&
+      isTenant &&
+      property?.title &&
+      body.trim() === ""
+    ) {
+      setBody(
+        `Hi, I’m interested in this rental: ${property.title}.\n\nIs it still available?`
+      );
+    }
+
     setAllowed(true);
     setLoading(false);
   }
@@ -323,7 +367,7 @@ export default function MessageThreadPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link href={backHref} className="text-sm font-bold text-slate-600">
           ← Back to Messages
         </Link>
@@ -338,19 +382,51 @@ export default function MessageThreadPage() {
               {conversation.subject || property?.title || "Conversation"}
             </h1>
 
-            {property && (
-              <p className="mt-3 font-bold text-slate-600">
-                {property.title || "Rental"}{" "}
-                {property.city && property.state
-                  ? `· ${property.city}, ${property.state}`
-                  : ""}
-              </p>
-            )}
-
             {companyRole && (
               <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
                 Company role: {companyRole}
               </p>
+            )}
+
+            {property && (
+              <div className="mt-5 rounded-[1.5rem] bg-[#f7f4ef] p-4 ring-1 ring-slate-200 sm:p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+                      Rental conversation
+                    </p>
+
+                    <h2 className="mt-2 text-xl font-black">
+                      {property.title || "Rental"}
+                    </h2>
+
+                    <p className="mt-1 text-sm font-bold text-slate-600">
+                      {getLocation(property)}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-slate-700">
+                      <span className="rounded-full bg-white px-3 py-2 ring-1 ring-slate-200">
+                        {formatMoney(property.monthly_rent)}
+                      </span>
+
+                      <span className="rounded-full bg-white px-3 py-2 ring-1 ring-slate-200">
+                        {formatRoom(property.bedrooms, "bed", "beds")}
+                      </span>
+
+                      <span className="rounded-full bg-white px-3 py-2 ring-1 ring-slate-200">
+                        {formatRoom(property.bathrooms, "bath", "baths")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Link
+                    href={`/listings/${property.id}`}
+                    className="rounded-full bg-white px-5 py-3 text-center text-sm font-black shadow-sm ring-1 ring-slate-200"
+                  >
+                    View Listing
+                  </Link>
+                </div>
+              </div>
             )}
           </div>
 
@@ -373,7 +449,7 @@ export default function MessageThreadPage() {
                     }`}
                   >
                     <div
-                      className={`max-w-[80%] rounded-3xl px-5 py-4 ${
+                      className={`max-w-[88%] rounded-3xl px-5 py-4 sm:max-w-[78%] ${
                         isMine
                           ? "bg-slate-950 text-white"
                           : "bg-white text-slate-950 ring-1 ring-slate-200"
@@ -396,9 +472,10 @@ export default function MessageThreadPage() {
               })
             ) : (
               <div className="rounded-3xl bg-white p-8 text-center ring-1 ring-slate-200">
-                <h2 className="text-2xl font-black">No messages yet</h2>
+                <h2 className="text-2xl font-black">Start the conversation</h2>
                 <p className="mt-3 text-slate-600">
-                  Start the conversation below.
+                  Ask about availability, showings, lease terms, or anything
+                  else you want to confirm.
                 </p>
               </div>
             )}
