@@ -284,13 +284,18 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
             <option value="No pets">No pets</option>
           </select>
 
-          <input
-            value={availableBy}
-            onChange={(event) => setAvailableBy(event.target.value)}
-            type="date"
-            className="rounded-2xl border border-[#d6ccbc] bg-white px-4 py-3 font-bold text-[#07101f] outline-none transition focus:border-[#07101f]"
-            title="Available by"
-          />
+          <label className="rounded-2xl border border-[#d6ccbc] bg-white px-4 py-2">
+  <span className="block text-[11px] font-black uppercase tracking-[0.16em] text-[#7b6f5f]">
+    Available by
+  </span>
+
+  <input
+    value={availableBy}
+    onChange={(event) => setAvailableBy(event.target.value)}
+    type="date"
+    className="mt-1 w-full bg-transparent font-bold text-[#07101f] outline-none"
+  />
+</label>
 
           <div className="flex items-center justify-between rounded-2xl bg-[#f7f1e7] px-4 py-3 text-sm font-black text-[#6f7b91]">
             <span>
