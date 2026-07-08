@@ -25,6 +25,7 @@ export default function NewMaintenanceRequestPage() {
   const [message, setMessage] = useState("");
   const [leases, setLeases] = useState<Lease[]>([]);
   const [saving, setSaving] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [form, setForm] = useState({
     lease_id: "",
@@ -91,6 +92,82 @@ export default function NewMaintenanceRequestPage() {
     setLoading(false);
   }
 
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+
+    const imageFiles = Array.from(files).filter((file) =>
+      file.type.startsWith("image/")
+    );
+
+    const limitedFiles = imageFiles.slice(0, 6);
+
+    setSelectedFiles(limitedFiles);
+  }
+
+  async function uploadMaintenancePhotos({
+    requestId,
+    selectedLease,
+    userId,
+  }: {
+    requestId: string;
+    selectedLease: Lease;
+    userId: string;
+  }) {
+    for (const file of selectedFiles) {
+      const fileExt = file.name.split(".").pop() || "jpg";
+      const safeFileName = file.name
+        .replace(/\s+/g, "-")
+        .replace(/[^a-zA-Z0-9.-]/g, "")
+        .toLowerCase();
+
+      const filePath = `${selectedLease.tenant_id}/${requestId}/${Date.now()}-${safeFileName || `photo.${fileExt}`}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("maintenance-photos")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const { error: photoError } = await supabase
+        .from("maintenance_request_photos")
+        .insert({
+          maintenance_request_id: requestId,
+          lease_id: selectedLease.id,
+          property_id: selectedLease.property_id,
+          tenant_id: selectedLease.tenant_id,
+          landlord_id: selectedLease.landlord_id,
+          uploaded_by: userId,
+          file_path: filePath,
+          file_name: file.name,
+          content_type: file.type,
+        });
+
+      if (photoError) {
+        throw new Error(photoError.message);
+      }
+
+      const { error: updateError } = await supabase
+        .from("maintenance_request_updates")
+        .insert({
+          maintenance_request_id: requestId,
+          actor_id: userId,
+          actor_role: "tenant",
+          update_type: "photo_added",
+          note: `Photo added: ${file.name}`,
+        });
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    }
+  }
+
   async function submitRequest() {
     if (!form.lease_id) {
       setMessage("Please choose a lease/property.");
@@ -117,6 +194,16 @@ export default function NewMaintenanceRequestPage() {
     setSaving(true);
     setMessage("");
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setMessage("Please log in again.");
+      setSaving(false);
+      return;
+    }
+
     const { data: newRequest, error } = await supabase
       .from("maintenance_requests")
       .insert({
@@ -139,6 +226,47 @@ export default function NewMaintenanceRequestPage() {
       return;
     }
 
+    if (!newRequest?.id) {
+      setMessage("Request was created, but the request ID was not returned.");
+      setSaving(false);
+      return;
+    }
+
+    const { error: timelineError } = await supabase
+      .from("maintenance_request_updates")
+      .insert({
+        maintenance_request_id: newRequest.id,
+        actor_id: user.id,
+        actor_role: "tenant",
+        update_type: "created",
+        new_status: "open",
+        note: form.description.trim(),
+      });
+
+    if (timelineError) {
+      setMessage(timelineError.message);
+      setSaving(false);
+      return;
+    }
+
+    try {
+      if (selectedFiles.length > 0) {
+        await uploadMaintenancePhotos({
+          requestId: newRequest.id,
+          selectedLease,
+          userId: user.id,
+        });
+      }
+    } catch (uploadError) {
+      setMessage(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "The request was created, but the photo upload failed."
+      );
+      setSaving(false);
+      return;
+    }
+
     await createNotification({
       userId: selectedLease.landlord_id,
       title: "New maintenance request",
@@ -146,17 +274,12 @@ export default function NewMaintenanceRequestPage() {
         form.title
       }`,
       type: "maintenance_request",
-      targetUrl: "/dashboard/landlord/maintenance",
+      targetUrl: `/dashboard/landlord/maintenance/${newRequest.id}`,
       dedupe: false,
     });
 
     setSaving(false);
-
-    if (newRequest?.id) {
-      router.push("/dashboard/tenant/maintenance");
-    } else {
-      router.push("/dashboard/tenant/maintenance");
-    }
+    router.push(`/dashboard/tenant/maintenance/${newRequest.id}`);
   }
 
   if (loading) {
@@ -208,8 +331,8 @@ export default function NewMaintenanceRequestPage() {
           </h1>
 
           <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            Tell your landlord what needs attention. For emergencies, contact
-            your landlord or local emergency services directly as well.
+            Tell your landlord what needs attention. Add photos to help explain
+            the issue.
           </p>
 
           {message && (
@@ -317,6 +440,37 @@ export default function NewMaintenanceRequestPage() {
                   placeholder="Describe the issue, where it is located, when it started, and any details the landlord should know."
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 leading-7 outline-none focus:border-slate-500"
                 />
+              </label>
+
+              <label className="block rounded-3xl border border-dashed border-slate-300 bg-[#f7f4ef] p-6">
+                <span className="block text-sm font-black text-slate-700">
+                  Photos
+                </span>
+
+                <span className="mt-2 block text-sm leading-6 text-slate-600">
+                  Upload up to 6 photos. JPG, PNG, or HEIC images are best.
+                </span>
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => handleFiles(event.target.files)}
+                  className="mt-4 block w-full text-sm font-bold text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-slate-950 file:px-5 file:py-3 file:font-black file:text-white"
+                />
+
+                {selectedFiles.length > 0 && (
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {selectedFiles.map((file) => (
+                      <div
+                        key={`${file.name}-${file.size}`}
+                        className="rounded-2xl bg-white p-4 text-sm font-bold text-slate-600"
+                      >
+                        {file.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </label>
 
               <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">

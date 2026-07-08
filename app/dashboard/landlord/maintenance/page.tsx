@@ -168,6 +168,16 @@ export default function LandlordMaintenancePage() {
     setSavingId(request.id);
     setMessage("");
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      showError("Please log in again.");
+      setSavingId("");
+      return;
+    }
+
     const now = new Date().toISOString();
 
     const updatePayload: {
@@ -178,7 +188,7 @@ export default function LandlordMaintenancePage() {
       closed_at?: string | null;
     } = {
       status,
-      landlord_notes: notesById[request.id]?.trim() || null,
+      landlord_notes: notesById[request.id]?.trim() || request.landlord_notes,
       updated_at: now,
     };
 
@@ -201,12 +211,32 @@ export default function LandlordMaintenancePage() {
       return;
     }
 
+    const { error: timelineError } = await supabase
+      .from("maintenance_request_updates")
+      .insert({
+        maintenance_request_id: request.id,
+        actor_id: user.id,
+        actor_role: "landlord",
+        update_type: "status_changed",
+        old_status: request.status,
+        new_status: status,
+        note:
+          notesById[request.id]?.trim() ||
+          `Status changed to ${formatStatus(status)}.`,
+      });
+
+    if (timelineError) {
+      showError(timelineError.message);
+      setSavingId("");
+      return;
+    }
+
     await createNotification({
       userId: request.tenant_id,
       title: "Maintenance request updated",
       message: `"${request.title}" is now ${formatStatus(status)}.`,
       type: "maintenance_update",
-      targetUrl: "/dashboard/tenant/maintenance",
+      targetUrl: `/dashboard/tenant/maintenance/${request.id}`,
       dedupe: false,
     });
 
@@ -216,13 +246,30 @@ export default function LandlordMaintenancePage() {
   }
 
   async function saveNotes(request: MaintenanceRequest) {
+    if (!notesById[request.id]?.trim()) {
+      showError("Please enter a note.");
+      return;
+    }
+
     setSavingId(request.id);
     setMessage("");
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      showError("Please log in again.");
+      setSavingId("");
+      return;
+    }
+
+    const note = notesById[request.id].trim();
 
     const { error } = await supabase
       .from("maintenance_requests")
       .update({
-        landlord_notes: notesById[request.id]?.trim() || null,
+        landlord_notes: note,
         updated_at: new Date().toISOString(),
       })
       .eq("id", request.id);
@@ -233,12 +280,28 @@ export default function LandlordMaintenancePage() {
       return;
     }
 
+    const { error: updateError } = await supabase
+      .from("maintenance_request_updates")
+      .insert({
+        maintenance_request_id: request.id,
+        actor_id: user.id,
+        actor_role: "landlord",
+        update_type: "landlord_message",
+        note,
+      });
+
+    if (updateError) {
+      showError(updateError.message);
+      setSavingId("");
+      return;
+    }
+
     await createNotification({
       userId: request.tenant_id,
       title: "Maintenance note added",
       message: `Your landlord added an update to "${request.title}".`,
       type: "maintenance_update",
-      targetUrl: "/dashboard/tenant/maintenance",
+      targetUrl: `/dashboard/tenant/maintenance/${request.id}`,
       dedupe: false,
     });
 
@@ -316,8 +379,8 @@ export default function LandlordMaintenancePage() {
               </h1>
 
               <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-                View tenant repair requests, update status, and send notes back
-                to tenants.
+                View tenant repair requests, open photos, update status, and
+                send notes back to tenants.
               </p>
             </div>
           </div>
@@ -441,52 +504,63 @@ function RequestCard({
   return (
     <div className="rounded-3xl bg-[#f7f4ef] p-6">
       <div className="flex flex-col gap-5">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-xl font-black">{request.title}</h3>
+        <Link
+          href={`/dashboard/landlord/maintenance/${request.id}`}
+          className="block rounded-2xl bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-xl font-black">{request.title}</h3>
 
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">
-              {formatPriority(request.priority)}
-            </span>
+                <span className="rounded-full bg-[#f7f4ef] px-3 py-1 text-xs font-black text-slate-700">
+                  {formatPriority(request.priority)}
+                </span>
 
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-black ${
-                request.status === "resolved" || request.status === "closed"
-                  ? "bg-green-50 text-green-700"
-                  : request.priority === "emergency" ||
-                      request.priority === "urgent"
-                    ? "bg-red-50 text-red-700"
-                    : "bg-amber-50 text-amber-700"
-              }`}
-            >
-              {formatStatus(request.status)}
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-black ${
+                    request.status === "resolved" || request.status === "closed"
+                      ? "bg-green-50 text-green-700"
+                      : request.priority === "emergency" ||
+                          request.priority === "urgent"
+                        ? "bg-red-50 text-red-700"
+                        : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {formatStatus(request.status)}
+                </span>
+              </div>
+
+              {lease?.tenant_name && (
+                <p className="mt-3 font-bold text-slate-500">
+                  Tenant: {lease.tenant_name}
+                </p>
+              )}
+
+              {lease?.property_address && (
+                <p className="mt-2 font-bold text-slate-500">
+                  {lease.property_address}
+                </p>
+              )}
+
+              <p className="mt-4 whitespace-pre-wrap leading-7 text-slate-700">
+                {request.description}
+              </p>
+
+              <p className="mt-4 text-sm font-bold text-slate-500">
+                Submitted {new Date(request.created_at).toLocaleString()}
+              </p>
+            </div>
+
+            <span className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white">
+              View Full Request
             </span>
           </div>
-
-          {lease?.tenant_name && (
-            <p className="mt-3 font-bold text-slate-500">
-              Tenant: {lease.tenant_name}
-            </p>
-          )}
-
-          {lease?.property_address && (
-            <p className="mt-2 font-bold text-slate-500">
-              {lease.property_address}
-            </p>
-          )}
-
-          <p className="mt-4 whitespace-pre-wrap leading-7 text-slate-700">
-            {request.description}
-          </p>
-
-          <p className="mt-4 text-sm font-bold text-slate-500">
-            Submitted {new Date(request.created_at).toLocaleString()}
-          </p>
-        </div>
+        </Link>
 
         <label className="block">
           <span className="mb-2 block text-sm font-black text-slate-700">
-            Landlord Notes / Update
+            Quick Landlord Note
           </span>
 
           <textarea

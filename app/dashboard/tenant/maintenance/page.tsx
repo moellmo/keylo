@@ -176,7 +176,7 @@ export default function TenantMaintenancePage() {
               </h1>
 
               <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-                Submit repair requests and track landlord updates.
+                Submit repair requests, add photos, and track landlord updates.
               </p>
             </div>
 
@@ -261,7 +261,10 @@ function RequestCard({ request }: { request: MaintenanceRequest }) {
   const lease = getLease(request);
 
   return (
-    <div className="rounded-3xl bg-[#f7f4ef] p-6">
+    <Link
+      href={`/dashboard/tenant/maintenance/${request.id}`}
+      className="block rounded-3xl bg-[#f7f4ef] p-6 transition hover:-translate-y-0.5 hover:shadow-md"
+    >
       <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
@@ -309,8 +312,14 @@ function RequestCard({ request }: { request: MaintenanceRequest }) {
           <p className="mt-4 text-sm font-bold text-slate-500">
             Submitted {new Date(request.created_at).toLocaleString()}
           </p>
+
+          <div className="mt-5">
+            <span className="inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">
+              View Full Request
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
