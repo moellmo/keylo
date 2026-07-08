@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
@@ -53,9 +53,28 @@ type MaintenanceUpdate = {
   created_at: string;
 };
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | "";
+
+type MaintenanceTab =
+  | "all"
+  | "active"
+  | "urgent"
+  | "open"
+  | "in_progress"
+  | "resolved"
+  | "closed"
+  | "cancelled";
+
 type CompanyMembership = {
   company_id: string;
-  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  role: CompanyRole;
   landlord_companies:
     | {
         id: string;
@@ -86,12 +105,22 @@ function getCompanyFromMembership(membership: CompanyMembership | null) {
   return membership.landlord_companies;
 }
 
-function canManageMaintenance(role: string) {
+function canManageMaintenance(role: CompanyRole) {
   return (
     role === "owner" ||
     role === "admin" ||
     role === "manager" ||
     role === "maintenance"
+  );
+}
+
+function canViewMaintenance(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "maintenance" ||
+    role === "viewer"
   );
 }
 
@@ -122,6 +151,17 @@ function formatUpdateType(type: string) {
   return type;
 }
 
+function isRequestActive(request: MaintenanceRequest) {
+  return request.status === "open" || request.status === "in_progress";
+}
+
+function isRequestUrgent(request: MaintenanceRequest) {
+  return (
+    (request.priority === "urgent" || request.priority === "emergency") &&
+    isRequestActive(request)
+  );
+}
+
 export default function LandlordMaintenancePage() {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -136,7 +176,9 @@ export default function LandlordMaintenancePage() {
   >({});
 
   const [companyName, setCompanyName] = useState("");
-  const [companyRole, setCompanyRole] = useState("");
+  const [companyRole, setCompanyRole] = useState<CompanyRole>("");
+  const [canManage, setCanManage] = useState(false);
+  const [activeTab, setActiveTab] = useState<MaintenanceTab>("active");
 
   useEffect(() => {
     loadRequests();
@@ -155,6 +197,8 @@ export default function LandlordMaintenancePage() {
   async function loadRequests() {
     setLoading(true);
     setMessage("");
+    setAllowed(false);
+    setCanManage(false);
 
     const {
       data: { user },
@@ -162,7 +206,6 @@ export default function LandlordMaintenancePage() {
 
     if (!user) {
       showError("Please log in as a landlord.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -175,13 +218,14 @@ export default function LandlordMaintenancePage() {
 
     if (profile?.role !== "landlord" && profile?.role !== "admin") {
       showError("Only landlords can view maintenance requests.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
 
     let companyId: string | null = null;
-    let membershipRole = "";
+    let membershipRole: CompanyRole = "";
+    let userCanManage = profile?.role === "admin";
+    let userCanView = profile?.role === "admin";
 
     if (profile?.role === "landlord") {
       const { data: membershipRows, error: membershipError } = await supabase
@@ -203,7 +247,6 @@ export default function LandlordMaintenancePage() {
 
       if (membershipError) {
         showError(membershipError.message);
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -220,14 +263,17 @@ export default function LandlordMaintenancePage() {
         membershipRole = membership.role;
         setCompanyName(company.name);
         setCompanyRole(membership.role);
+        userCanManage = canManageMaintenance(membership.role);
+        userCanView = canViewMaintenance(membership.role);
       } else {
         setCompanyName("");
         setCompanyRole("");
+        userCanManage = true;
+        userCanView = true;
       }
 
-      if (membership && !canManageMaintenance(membership.role)) {
+      if (membership && !userCanView) {
         showError("Your company role does not have access to maintenance.");
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -254,16 +300,16 @@ export default function LandlordMaintenancePage() {
 
       if (error) {
         showError(error.message);
-        setAllowed(false);
         setLoading(false);
         return;
       }
 
+      setCanManage(true);
       await finishLoadingRequests((data || []) as unknown as MaintenanceRequest[]);
       return;
     }
 
-    if (companyId && canManageMaintenance(membershipRole)) {
+    if (companyId && userCanView) {
       query = query.or(
         `landlord_company_id.eq.${companyId},landlord_id.eq.${user.id}`
       );
@@ -275,11 +321,11 @@ export default function LandlordMaintenancePage() {
 
     if (error) {
       showError(error.message);
-      setAllowed(false);
       setLoading(false);
       return;
     }
 
+    setCanManage(userCanManage);
     await finishLoadingRequests((data || []) as unknown as MaintenanceRequest[]);
   }
 
@@ -303,7 +349,6 @@ export default function LandlordMaintenancePage() {
 
       if (photoError) {
         showError(photoError.message);
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -336,7 +381,6 @@ export default function LandlordMaintenancePage() {
 
       if (updateError) {
         showError(updateError.message);
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -363,6 +407,11 @@ export default function LandlordMaintenancePage() {
     request: MaintenanceRequest,
     status: MaintenanceRequest["status"]
   ) {
+    if (!canManage) {
+      showError("Your company role can only view maintenance requests.");
+      return;
+    }
+
     const confirmed = window.confirm(
       `Update this request to ${formatStatus(status)}?`
     );
@@ -450,6 +499,11 @@ export default function LandlordMaintenancePage() {
   }
 
   async function saveNotes(request: MaintenanceRequest) {
+    if (!canManage) {
+      showError("Your company role can only view maintenance requests.");
+      return;
+    }
+
     if (!notesById[request.id]?.trim()) {
       showError("Please enter a note.");
       return;
@@ -514,10 +568,8 @@ export default function LandlordMaintenancePage() {
     showSuccess("Landlord note saved.");
   }
 
-  const activeRequests = requests.filter(
-    (request) => request.status === "open" || request.status === "in_progress"
-  );
-
+  const activeRequests = requests.filter(isRequestActive);
+  const urgentRequests = requests.filter(isRequestUrgent);
   const completedRequests = requests.filter(
     (request) =>
       request.status === "resolved" ||
@@ -525,11 +577,26 @@ export default function LandlordMaintenancePage() {
       request.status === "cancelled"
   );
 
-  const urgentRequests = requests.filter(
-    (request) =>
-      (request.priority === "urgent" || request.priority === "emergency") &&
-      (request.status === "open" || request.status === "in_progress")
-  );
+  const filteredRequests = useMemo(() => {
+    if (activeTab === "all") return requests;
+    if (activeTab === "active") return requests.filter(isRequestActive);
+    if (activeTab === "urgent") return requests.filter(isRequestUrgent);
+
+    return requests.filter((request) => request.status === activeTab);
+  }, [activeTab, requests]);
+
+  const counts = {
+    all: requests.length,
+    active: activeRequests.length,
+    urgent: urgentRequests.length,
+    open: requests.filter((request) => request.status === "open").length,
+    in_progress: requests.filter((request) => request.status === "in_progress")
+      .length,
+    resolved: requests.filter((request) => request.status === "resolved").length,
+    closed: requests.filter((request) => request.status === "closed").length,
+    cancelled: requests.filter((request) => request.status === "cancelled")
+      .length,
+  };
 
   if (loading) {
     return (
@@ -597,9 +664,22 @@ export default function LandlordMaintenancePage() {
                   <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
                     Role: {companyRole}
                   </span>
+
+                  {!canManage && (
+                    <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+                      Read-only
+                    </span>
+                  )}
                 </div>
               )}
             </div>
+
+            <Link
+              href="/dashboard/landlord"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
+            >
+              Dashboard
+            </Link>
           </div>
 
           {message && (
@@ -614,18 +694,88 @@ export default function LandlordMaintenancePage() {
             </div>
           )}
 
-          <section className="mt-8 grid gap-5 md:grid-cols-3">
+          <section className="mt-8 grid gap-5 md:grid-cols-4">
             <SummaryCard label="Active" value={String(activeRequests.length)} />
-            <SummaryCard label="Urgent" value={String(urgentRequests.length)} />
+            <SummaryCard
+              label="Urgent"
+              value={String(urgentRequests.length)}
+              urgent={urgentRequests.length > 0}
+            />
+            <SummaryCard label="Completed" value={String(completedRequests.length)} />
             <SummaryCard label="Total" value={String(requests.length)} />
           </section>
 
-          <section className="mt-8">
-            <h2 className="text-2xl font-black">Active Requests</h2>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <TabButton
+              active={activeTab === "active"}
+              label={`Active (${counts.active})`}
+              onClick={() => setActiveTab("active")}
+            />
 
-            {activeRequests.length > 0 ? (
+            <TabButton
+              active={activeTab === "urgent"}
+              label={`Urgent (${counts.urgent})`}
+              onClick={() => setActiveTab("urgent")}
+            />
+
+            <TabButton
+              active={activeTab === "all"}
+              label={`All (${counts.all})`}
+              onClick={() => setActiveTab("all")}
+            />
+
+            <TabButton
+              active={activeTab === "open"}
+              label={`Open (${counts.open})`}
+              onClick={() => setActiveTab("open")}
+            />
+
+            <TabButton
+              active={activeTab === "in_progress"}
+              label={`In Progress (${counts.in_progress})`}
+              onClick={() => setActiveTab("in_progress")}
+            />
+
+            <TabButton
+              active={activeTab === "resolved"}
+              label={`Resolved (${counts.resolved})`}
+              onClick={() => setActiveTab("resolved")}
+            />
+
+            <TabButton
+              active={activeTab === "closed"}
+              label={`Closed (${counts.closed})`}
+              onClick={() => setActiveTab("closed")}
+            />
+
+            <TabButton
+              active={activeTab === "cancelled"}
+              label={`Cancelled (${counts.cancelled})`}
+              onClick={() => setActiveTab("cancelled")}
+            />
+          </div>
+
+          <section className="mt-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-2xl font-black">
+                {activeTab === "all"
+                  ? "All Requests"
+                  : activeTab === "active"
+                    ? "Active Requests"
+                    : activeTab === "urgent"
+                      ? "Urgent Requests"
+                      : `${formatStatus(activeTab)} Requests`}
+              </h2>
+
+              <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                {filteredRequests.length} request
+                {filteredRequests.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            {filteredRequests.length > 0 ? (
               <div className="mt-5 grid gap-5">
-                {activeRequests.map((request) => (
+                {filteredRequests.map((request) => (
                   <RequestCard
                     key={request.id}
                     request={request}
@@ -636,40 +786,14 @@ export default function LandlordMaintenancePage() {
                     onUpdateStatus={updateRequestStatus}
                     photoCount={photoCounts[request.id] || 0}
                     latestUpdate={latestUpdates[request.id] || null}
+                    canManage={canManage}
                   />
                 ))}
               </div>
             ) : (
               <EmptyState
-                title="No active maintenance requests"
-                text="Open and in-progress requests will appear here."
-              />
-            )}
-          </section>
-
-          <section className="mt-8">
-            <h2 className="text-2xl font-black">Completed / Closed</h2>
-
-            {completedRequests.length > 0 ? (
-              <div className="mt-5 grid gap-5">
-                {completedRequests.map((request) => (
-                  <RequestCard
-                    key={request.id}
-                    request={request}
-                    savingId={savingId}
-                    notesById={notesById}
-                    setNotesById={setNotesById}
-                    onSaveNotes={saveNotes}
-                    onUpdateStatus={updateRequestStatus}
-                    photoCount={photoCounts[request.id] || 0}
-                    latestUpdate={latestUpdates[request.id] || null}
-                  />
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="No completed requests yet"
-                text="Resolved, closed, or cancelled requests will appear here."
+                title="No maintenance requests found"
+                text="Requests matching this tab will appear here."
               />
             )}
           </section>
@@ -679,9 +803,45 @@ export default function LandlordMaintenancePage() {
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function TabButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <div className="rounded-3xl bg-[#f7f4ef] p-5">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl px-4 py-3 text-sm font-black ring-1 ${
+        active
+          ? "bg-slate-950 text-white ring-slate-950"
+          : "bg-white text-slate-700 ring-slate-200"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  urgent = false,
+}: {
+  label: string;
+  value: string;
+  urgent?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-3xl p-5 ring-1 ${
+        urgent ? "bg-red-50 ring-red-200" : "bg-[#f7f4ef] ring-slate-200"
+      }`}
+    >
       <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
         {label}
       </p>
@@ -709,6 +869,7 @@ function RequestCard({
   onUpdateStatus,
   photoCount,
   latestUpdate,
+  canManage,
 }: {
   request: MaintenanceRequest;
   savingId: string;
@@ -721,6 +882,7 @@ function RequestCard({
   ) => void;
   photoCount: number;
   latestUpdate: MaintenanceUpdate | null;
+  canManage: boolean;
 }) {
   const lease = getLease(request);
   const isActive =
@@ -822,79 +984,83 @@ function RequestCard({
           </div>
         </Link>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-black text-slate-700">
-            Quick Landlord Note
-          </span>
+        {canManage && (
+          <>
+            <label className="block">
+              <span className="mb-2 block text-sm font-black text-slate-700">
+                Quick Landlord Note
+              </span>
 
-          <textarea
-            value={notesById[request.id] || ""}
-            onChange={(event) =>
-              setNotesById((current) => ({
-                ...current,
-                [request.id]: event.target.value,
-              }))
-            }
-            rows={4}
-            placeholder="Add an update for the tenant..."
-            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 leading-7 outline-none focus:border-slate-500"
-          />
-        </label>
+              <textarea
+                value={notesById[request.id] || ""}
+                onChange={(event) =>
+                  setNotesById((current) => ({
+                    ...current,
+                    [request.id]: event.target.value,
+                  }))
+                }
+                rows={4}
+                placeholder="Add an update for the tenant..."
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 leading-7 outline-none focus:border-slate-500"
+              />
+            </label>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onSaveNotes(request)}
-            disabled={savingId === request.id}
-            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-60"
-          >
-            {savingId === request.id ? "Saving..." : "Save Note"}
-          </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onSaveNotes(request)}
+                disabled={savingId === request.id}
+                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-60"
+              >
+                {savingId === request.id ? "Saving..." : "Save Note"}
+              </button>
 
-          {isActive && request.status !== "in_progress" && (
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(request, "in_progress")}
-              disabled={savingId === request.id}
-              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
-            >
-              Mark In Progress
-            </button>
-          )}
+              {isActive && request.status !== "in_progress" && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(request, "in_progress")}
+                  disabled={savingId === request.id}
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                >
+                  Mark In Progress
+                </button>
+              )}
 
-          {isActive && (
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(request, "resolved")}
-              disabled={savingId === request.id}
-              className="rounded-full bg-green-700 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
-            >
-              Mark Resolved
-            </button>
-          )}
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(request, "resolved")}
+                  disabled={savingId === request.id}
+                  className="rounded-full bg-green-700 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                >
+                  Mark Resolved
+                </button>
+              )}
 
-          {request.status === "resolved" && (
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(request, "closed")}
-              disabled={savingId === request.id}
-              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
-            >
-              Close
-            </button>
-          )}
+              {request.status === "resolved" && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(request, "closed")}
+                  disabled={savingId === request.id}
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                >
+                  Close
+                </button>
+              )}
 
-          {isActive && (
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(request, "cancelled")}
-              disabled={savingId === request.id}
-              className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(request, "cancelled")}
+                  disabled={savingId === request.id}
+                  className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
