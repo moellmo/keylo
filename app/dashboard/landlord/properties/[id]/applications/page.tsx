@@ -15,6 +15,7 @@ type Application = {
   pets: string | null;
   message: string | null;
   status: string;
+  screening_status: string | null;
   created_at: string;
 };
 
@@ -24,6 +25,31 @@ type Property = {
   city: string;
   state: string;
 };
+
+function formatScreeningStatus(status: string | null) {
+  if (!status || status === "not_requested") return "Screening: Not Requested";
+  if (status === "requested") return "Screening: Requested";
+  if (status === "tenant_approved") return "Screening: Tenant Approved";
+  if (status === "tenant_declined") return "Screening: Tenant Declined";
+  if (status === "in_progress") return "Screening: In Progress";
+  if (status === "completed") return "Screening: Completed";
+  if (status === "cancelled") return "Screening: Cancelled";
+  if (status === "failed") return "Screening: Failed";
+
+  return `Screening: ${status}`;
+}
+
+function screeningStatusClass(status: string | null) {
+  if (status === "tenant_approved") return "bg-green-50 text-green-700";
+  if (status === "tenant_declined" || status === "failed") {
+    return "bg-red-50 text-red-700";
+  }
+  if (status === "requested" || status === "in_progress") {
+    return "bg-yellow-50 text-yellow-700";
+  }
+
+  return "bg-slate-100 text-slate-600";
+}
 
 export default async function PropertyApplicationsPage({
   params,
@@ -113,6 +139,14 @@ export default async function PropertyApplicationsPage({
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
                         {application.status}
                       </span>
+
+                    <span
+  className={`rounded-full px-3 py-1 text-xs font-black ${screeningStatusClass(
+    application.screening_status
+  )}`}
+>
+  {formatScreeningStatus(application.screening_status)}
+</span>
                     </div>
 
                     <p className="mt-2 font-bold text-slate-500">

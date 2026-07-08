@@ -15,7 +15,11 @@ type PropertyWithApplications = {
   status: string;
   rejection_note: string | null;
   created_at: string;
-  applications: { id: string; status?: string | null }[];
+  applications: {
+  id: string;
+  status?: string | null;
+  screening_status?: string | null;
+}[];
 };
 
 type LandlordLease = {
@@ -109,10 +113,11 @@ export default function LandlordDashboardPage() {
           status,
           rejection_note,
           created_at,
-          applications (
-            id,
-            status
-          )
+          aapplications (
+  id,
+  status,
+  screening_status
+)
         `
         )
         .eq("landlord_id", user.id)
@@ -255,6 +260,20 @@ export default function LandlordDashboardPage() {
     (total, listing) => total + listing.applications.length,
     0
   );
+
+  const screeningApprovedApplications = listings.flatMap((listing) =>
+  listing.applications.filter(
+    (application) => application.screening_status === "tenant_approved"
+  )
+);
+
+const screeningRequestedApplications = listings.flatMap((listing) =>
+  listing.applications.filter(
+    (application) =>
+      application.screening_status === "requested" ||
+      application.screening_status === "in_progress"
+  )
+);
 
   const publishedListings = listings.filter(
     (listing) => listing.status === "published"
@@ -463,6 +482,17 @@ export default function LandlordDashboardPage() {
               />
             )}
 
+            {screeningApprovedApplications.length > 0 && (
+  <ActionCard
+    title="Screening approved"
+    text={`${screeningApprovedApplications.length} tenant${
+      screeningApprovedApplications.length === 1 ? " has" : "s have"
+    } approved screening consent.`}
+    href="#listings"
+    button="Review Applicants"
+  />
+)}
+
             {pendingListings > 0 && (
               <ActionCard
                 title="Listings pending"
@@ -486,10 +516,12 @@ export default function LandlordDashboardPage() {
             )}
 
             {leasesNeedingSignature.length === 0 &&
-              unpaidBalance === 0 &&
-              urgentMaintenance.length === 0 &&
-              pendingListings === 0 &&
-              rejectedListings === 0 && (
+unpaidBalance === 0 &&
+urgentMaintenance.length === 0 &&
+pendingListings === 0 &&
+rejectedListings === 0 &&
+screeningApprovedApplications.length === 0 &&
+screeningRequestedApplications.length === 0 && (
                 <div className="rounded-3xl bg-[#f7f4ef] p-6 md:col-span-2 xl:col-span-4">
                   <h3 className="text-2xl font-black">All caught up</h3>
                   <p className="mt-2 text-slate-600">

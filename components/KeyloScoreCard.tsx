@@ -92,32 +92,34 @@ export default function KeyloScoreCard({ userId, role }: KeyloScoreCardProps) {
 
   return (
     <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+      <div className="grid gap-5 xl:grid-cols-[1fr_115px]">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">
             Keylo Score
           </p>
 
-          <h2 className="mt-3 text-3xl font-black">
+          <h2 className="mt-3 text-2xl font-black leading-tight md:text-3xl">
             {loading ? "Loading..." : scoreLabel(overallScore)}
           </h2>
 
-          <p className="mt-2 leading-7 text-slate-600">
+          <p className="mt-3 text-sm leading-7 text-slate-600">
             {isTenant
               ? "Your tenant score is based on landlord ratings after completed leases."
               : "Your landlord score is based on tenant ratings after completed leases."}
           </p>
         </div>
 
-        <div className="rounded-3xl bg-[#f7f4ef] px-7 py-5 text-center">
-          <p className="text-5xl font-black">{formatScore(overallScore)}</p>
-          <p className="mt-1 text-sm font-black text-slate-500">
+        <div className="rounded-3xl bg-[#f7f4ef] px-5 py-5 text-center">
+          <p className="text-4xl font-black leading-none">
+            {formatScore(overallScore)}
+          </p>
+          <p className="mt-2 text-xs font-black text-slate-500">
             {ratings.length} rating{ratings.length === 1 ? "" : "s"}
           </p>
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4">
         <ScoreMiniCard label="Communication" score={communicationScore} />
 
         {isTenant ? (
@@ -126,11 +128,12 @@ export default function KeyloScoreCard({ userId, role }: KeyloScoreCardProps) {
               label="Payment / Rent Reliability"
               score={paymentOrRentScore}
             />
+
             <ScoreMiniCard label="Property Care" score={propertyCareScore} />
           </>
         ) : (
           <ScoreMiniCard
-            label="Maintenance / Responsiveness"
+            label="Maintenance Responsiveness"
             score={maintenanceScore}
           />
         )}
@@ -138,7 +141,7 @@ export default function KeyloScoreCard({ userId, role }: KeyloScoreCardProps) {
 
       {ratings.length === 0 && !loading && (
         <div className="mt-6 rounded-3xl bg-[#f7f4ef] p-5">
-          <p className="font-bold text-slate-600">
+          <p className="text-sm font-bold leading-6 text-slate-600">
             No ratings yet. Ratings will appear after completed leases.
           </p>
         </div>
@@ -156,7 +159,7 @@ function ScoreMiniCard({
 }) {
   return (
     <div className="rounded-3xl bg-[#f7f4ef] p-5">
-      <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+      <p className="break-words text-[11px] font-black uppercase leading-5 tracking-[0.14em] text-slate-500">
         {label}
       </p>
 

@@ -27,6 +27,7 @@ type SavedRentalProperty = {
 type TenantApplication = {
   id: string;
   status: string;
+  screening_status: string | null;
   created_at: string;
   move_in_date: string | null;
   property_id: string;
@@ -150,10 +151,11 @@ export default function TenantDashboardPage() {
           .select(
             `
             id,
-            status,
-            created_at,
-            move_in_date,
-            property_id,
+status,
+screening_status,
+created_at,
+move_in_date,
+property_id,
             properties (
               id,
               title,
@@ -303,6 +305,12 @@ export default function TenantDashboardPage() {
     (application) => application.status === "reviewing"
   );
 
+  const screeningRequests = applications.filter(
+  (application) =>
+    application.screening_status === "requested" ||
+    application.screening_status === "in_progress"
+);
+
   const leasesReadyToSign = leases.filter(
     (lease) => lease.lease_status === "sent_to_tenant"
   );
@@ -445,7 +453,17 @@ export default function TenantDashboardPage() {
                 button="View Payments"
               />
             )}
-
+            
+{screeningRequests.length > 0 && (
+  <ActionCard
+    title="Approve screening"
+    text={`${screeningRequests.length} application${
+      screeningRequests.length === 1 ? " needs" : "s need"
+    } screening consent.`}
+    href={`/dashboard/tenant/applications/${screeningRequests[0].id}`}
+    button="Review Request"
+  />
+)}
             {leasesReadyToSign.length > 0 && (
               <ActionCard
                 title="Sign your lease"
