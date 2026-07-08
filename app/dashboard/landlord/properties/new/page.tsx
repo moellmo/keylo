@@ -14,19 +14,24 @@ const amenityOptions = [
   "Near transportation",
 ];
 
+type Company = {
+  id: string;
+  name: string;
+  owner_id: string;
+};
+
 type CompanyMembership = {
   company_id: string;
   role: string;
   landlord_companies:
-    | {
-        id: string;
-        name: string;
-      }
-    | {
-        id: string;
-        name: string;
-      }[]
+    | Company
+    | Company[]
     | null;
+};
+
+type VerificationRow = {
+  landlord_id: string;
+  verification_status: string;
 };
 
 function getCompanyFromMembership(membership: CompanyMembership | null) {
@@ -74,6 +79,7 @@ export default function NewListingPage() {
   useEffect(() => {
     async function loadVerificationStatus() {
       setLoadingVerification(true);
+      setMessage("");
 
       const {
         data: { user },
@@ -101,13 +107,7 @@ export default function NewListingPage() {
 
       setRole(profile.role);
 
-      if (profile.role === "admin") {
-        setVerificationStatus("verified");
-        setLoadingVerification(false);
-        return;
-      }
-
-      if (profile.role !== "landlord") {
+      if (profile.role !== "landlord" && profile.role !== "admin") {
         setMessage("Only landlord accounts can post rental listings.");
         setLoadingVerification(false);
         return;
@@ -121,7 +121,8 @@ export default function NewListingPage() {
           role,
           landlord_companies (
             id,
-            name
+            name,
+            owner_id
           )
         `
         )
@@ -137,8 +138,9 @@ export default function NewListingPage() {
       }
 
       const firstMembership =
-        ((membershipRows || [])[0] as unknown as CompanyMembership | undefined) ||
-        null;
+        ((membershipRows || [])[0] as unknown as
+          | CompanyMembership
+          | undefined) || null;
 
       const company = getCompanyFromMembership(firstMembership);
 
@@ -152,11 +154,24 @@ export default function NewListingPage() {
         setCompanyRole("");
       }
 
-      const { data: verificationRow, error: verificationError } = await supabase
-        .from("landlord_verifications")
-        .select("verification_status")
-        .eq("landlord_id", user.id)
-        .maybeSingle();
+      if (profile.role === "admin" && !company) {
+        setVerificationStatus("verified");
+        setLoadingVerification(false);
+        return;
+      }
+
+      const verificationUserIds = new Set<string>();
+      verificationUserIds.add(user.id);
+
+      if (company?.owner_id) {
+        verificationUserIds.add(company.owner_id);
+      }
+
+      const { data: verificationRows, error: verificationError } =
+        await supabase
+          .from("landlord_verifications")
+          .select("landlord_id, verification_status")
+          .in("landlord_id", Array.from(verificationUserIds));
 
       if (verificationError) {
         setMessage(verificationError.message);
@@ -164,10 +179,11 @@ export default function NewListingPage() {
         return;
       }
 
-      setVerificationStatus(
-        verificationRow?.verification_status || "incomplete"
+      const hasVerifiedUser = ((verificationRows || []) as VerificationRow[]).some(
+        (row) => row.verification_status === "verified"
       );
 
+      setVerificationStatus(hasVerifiedUser ? "verified" : "incomplete");
       setLoadingVerification(false);
     }
 
@@ -204,7 +220,7 @@ export default function NewListingPage() {
   }
 
   function canSubmitListing() {
-    if (role === "admin") return true;
+    if (role === "admin" && !companyId) return true;
 
     return verificationStatus === "verified" && !!companyId;
   }
@@ -231,17 +247,23 @@ export default function NewListingPage() {
       return;
     }
 
-    if (role !== "admin" && verificationStatus !== "verified") {
+    if (role !== "admin" && !companyId) {
+      setMessage("Please create your landlord company before submitting a listing.");
+      setSaving(false);
+      return;
+    }
+
+    if (companyId && verificationStatus !== "verified") {
       setMessage(
-        "Landlord verification is required before submitting a listing for review."
+        "Company verification is required before submitting a listing for review."
       );
       setSaving(false);
       return;
     }
 
-    if (role !== "admin" && !companyId) {
+    if (role !== "admin" && verificationStatus !== "verified") {
       setMessage(
-        "Please create your landlord company before submitting a listing."
+        "Landlord verification is required before submitting a listing for review."
       );
       setSaving(false);
       return;
@@ -378,13 +400,13 @@ export default function NewListingPage() {
                   Verification: {formatStatus(verificationStatus)}
                 </span>
 
-                {role === "landlord" && companyName && (
+                {companyName && (
                   <span className="w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
                     Company: {companyName}
                   </span>
                 )}
 
-                {role === "landlord" && companyRole && (
+                {companyRole && (
                   <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
                     Role: {companyRole}
                   </span>
@@ -414,7 +436,29 @@ export default function NewListingPage() {
             </div>
           )}
 
-          {role !== "admin" && verificationStatus !== "verified" && (
+          {companyId && verificationStatus !== "verified" && (
+            <div className="mt-6 rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-200">
+              <h2 className="text-2xl font-black text-amber-900">
+                Verification Required
+              </h2>
+
+              <p className="mt-3 font-bold leading-7 text-amber-800">
+                This company needs an approved landlord verification before
+                submitting a listing for review. The company owner can upload ID,
+                proof of ownership, tax bill, utility bill, or management
+                agreement.
+              </p>
+
+              <Link
+                href="/dashboard/landlord/verification"
+                className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+              >
+                Go to Verification
+              </Link>
+            </div>
+          )}
+
+          {role !== "admin" && !companyId && verificationStatus !== "verified" && (
             <div className="mt-6 rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-200">
               <h2 className="text-2xl font-black text-amber-900">
                 Verification Required
@@ -544,9 +588,7 @@ export default function NewListingPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-black">
-                    City *
-                  </label>
+                  <label className="mb-2 block text-sm font-black">City *</label>
                   <input
                     value={form.city}
                     onChange={(e) => updateField("city", e.target.value)}
@@ -719,7 +761,7 @@ export default function NewListingPage() {
                 </Link>
               )}
 
-              {role !== "admin" && verificationStatus !== "verified" && (
+              {companyId && verificationStatus !== "verified" && (
                 <Link
                   href="/dashboard/landlord/verification"
                   className="rounded-full border border-amber-300 bg-amber-50 px-6 py-3 text-center font-black text-amber-900"
