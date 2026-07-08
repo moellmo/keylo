@@ -8,19 +8,61 @@ import NotificationBell from "@/components/NotificationBell";
 
 type Role = "tenant" | "landlord" | "admin" | null;
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | null;
+
 type CompanyMembership = {
   company_id: string;
-  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  role: Exclude<CompanyRole, null>;
 };
 
 type UnreadMessageRow = {
   id: string;
 };
 
+function isFullLandlordManager(role: CompanyRole) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
+function canUsePayments(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting"
+  );
+}
+
+function canUseMaintenance(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "maintenance"
+  );
+}
+
+function canViewLeases(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "accounting" ||
+    role === "viewer"
+  );
+}
+
 export default function Header() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [role, setRole] = useState<Role>(null);
+  const [companyRole, setCompanyRole] = useState<CompanyRole>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -37,6 +79,7 @@ export default function Header() {
       if (!user) {
         setLoggedIn(false);
         setRole(null);
+        setCompanyRole(null);
         setUnreadMessages(0);
         setLoading(false);
         return;
@@ -54,7 +97,27 @@ export default function Header() {
 
       setRole(userRole);
 
-            if (userRole === "admin") {
+      let landlordCompanyRole: CompanyRole = null;
+
+      if (userRole === "landlord") {
+        const { data: membershipRows } = await supabase
+          .from("landlord_company_members")
+          .select("company_id, role")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("created_at", { ascending: true })
+          .limit(1);
+
+        const firstMembership =
+          ((membershipRows || [])[0] as CompanyMembership | undefined) || null;
+
+        landlordCompanyRole = firstMembership?.role || null;
+        setCompanyRole(landlordCompanyRole);
+      } else {
+        setCompanyRole(null);
+      }
+
+      if (userRole === "admin") {
         const { count } = await supabase
           .from("contact_messages")
           .select("id", { count: "exact", head: true })
@@ -81,12 +144,7 @@ export default function Header() {
           .eq("status", "active");
 
         const companyIds = ((membershipRows || []) as CompanyMembership[])
-          .filter(
-            (membership) =>
-              membership.role === "owner" ||
-              membership.role === "admin" ||
-              membership.role === "manager"
-          )
+          .filter((membership) => isFullLandlordManager(membership.role))
           .map((membership) => membership.company_id);
 
         if (companyIds.length > 0) {
@@ -185,6 +243,29 @@ export default function Header() {
     return "Messages";
   }
 
+  const isPersonalLandlord = role === "landlord" && !companyRole;
+
+  const landlordCanManageListings =
+    role === "landlord" && (isPersonalLandlord || isFullLandlordManager(companyRole));
+
+  const landlordCanManageLeases =
+    role === "landlord" && (isPersonalLandlord || isFullLandlordManager(companyRole));
+
+  const landlordCanViewLeases =
+    role === "landlord" && (isPersonalLandlord || canViewLeases(companyRole));
+
+  const landlordCanUsePayments =
+    role === "landlord" && (isPersonalLandlord || canUsePayments(companyRole));
+
+  const landlordCanUseMaintenance =
+    role === "landlord" && (isPersonalLandlord || canUseMaintenance(companyRole));
+
+  const landlordCanUseTeam =
+    role === "landlord" && (isPersonalLandlord || isFullLandlordManager(companyRole));
+
+  const landlordCanUseLeaseBuilder =
+    role === "landlord" && (isPersonalLandlord || isFullLandlordManager(companyRole));
+
   const showMessages =
     role === "tenant" || role === "landlord" || role === "admin";
 
@@ -233,7 +314,7 @@ export default function Header() {
                   {dashboardLabel()}
                 </Link>
 
-                {role === "landlord" && (
+                {landlordCanManageListings && (
                   <Link
                     href="/dashboard/landlord/properties/new"
                     className="hidden rounded-full border border-[#d6ccbc] bg-white px-5 py-3 text-sm font-black text-[#07101f] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md xl:inline-flex"
@@ -302,7 +383,7 @@ export default function Header() {
             className="absolute inset-0 bg-slate-950/40"
           />
 
-          <aside className="absolute right-0 top-0 flex h-full w-[86%] max-w-sm flex-col overflow-y-auto bg-[#f7f1e7] p-5 shadow-2xl">
+          <aside className="absolute right-0 top-0 flex h-full w-[88%] max-w-sm flex-col overflow-y-auto bg-[#f7f1e7] p-5 shadow-2xl">
             <div className="flex items-center justify-between gap-4">
               <Link
                 href="/"
@@ -350,6 +431,12 @@ export default function Header() {
                     {dashboardLabel()}
                     <span>→</span>
                   </Link>
+
+                  {role === "landlord" && companyRole && (
+                    <p className="mt-3 rounded-2xl bg-[#f7f1e7] px-4 py-3 text-sm font-black capitalize text-[#7b6f5f]">
+                      Company role: {companyRole}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="grid gap-3">
@@ -372,7 +459,175 @@ export default function Header() {
               )}
             </div>
 
-            <nav className="mt-5 grid gap-3">
+            {loggedIn && role === "admin" && (
+              <MenuSection title="Admin">
+                <MobileMenuLink href="/admin" onClick={closeMenu}>
+                  Admin Dashboard
+                </MobileMenuLink>
+
+                <MobileMenuLink href="/admin/contact-messages" onClick={closeMenu}>
+                  <span className="flex w-full items-center justify-between gap-3">
+                    <span>Contact Messages</span>
+
+                    {unreadMessages > 0 && (
+                      <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
+                        {unreadMessages > 9 ? "9+" : unreadMessages}
+                      </span>
+                    )}
+                  </span>
+                </MobileMenuLink>
+
+                <MobileMenuLink href="/admin/listings" onClick={closeMenu}>
+                  Listings
+                </MobileMenuLink>
+
+                <MobileMenuLink href="/admin/applications" onClick={closeMenu}>
+                  Applications
+                </MobileMenuLink>
+
+                <MobileMenuLink href="/admin/users" onClick={closeMenu}>
+                  Users
+                </MobileMenuLink>
+              </MenuSection>
+            )}
+
+            {loggedIn && role === "landlord" && (
+              <MenuSection title="Landlord Tools">
+                <MobileMenuLink href="/dashboard/landlord" onClick={closeMenu}>
+                  Dashboard
+                </MobileMenuLink>
+
+                {landlordCanManageListings && (
+                  <>
+                    <MobileMenuLink
+                      href="/dashboard/landlord/properties"
+                      onClick={closeMenu}
+                    >
+                      Listings
+                    </MobileMenuLink>
+
+                    <MobileMenuLink
+                      href="/dashboard/landlord/properties/new"
+                      onClick={closeMenu}
+                    >
+                      Post New Listing
+                    </MobileMenuLink>
+                  </>
+                )}
+
+                {landlordCanViewLeases && (
+                  <MobileMenuLink
+                    href="/dashboard/landlord/leases"
+                    onClick={closeMenu}
+                  >
+                    Leases
+                  </MobileMenuLink>
+                )}
+
+                {landlordCanUsePayments && (
+                  <MobileMenuLink
+                    href="/dashboard/landlord/payments"
+                    onClick={closeMenu}
+                  >
+                    Payments
+                  </MobileMenuLink>
+                )}
+
+                {landlordCanUseMaintenance && (
+                  <MobileMenuLink
+                    href="/dashboard/landlord/maintenance"
+                    onClick={closeMenu}
+                  >
+                    Maintenance
+                  </MobileMenuLink>
+                )}
+
+                {landlordCanUseLeaseBuilder && (
+                  <MobileMenuLink
+                    href="/dashboard/landlord/lease-builder"
+                    onClick={closeMenu}
+                  >
+                    Lease Builder
+                  </MobileMenuLink>
+                )}
+
+                {landlordCanUseTeam && (
+                  <MobileMenuLink
+                    href="/dashboard/landlord/team"
+                    onClick={closeMenu}
+                  >
+                    Team
+                  </MobileMenuLink>
+                )}
+              </MenuSection>
+            )}
+
+            {loggedIn && role === "tenant" && (
+              <MenuSection title="Tenant Tools">
+                <MobileMenuLink href="/dashboard/tenant" onClick={closeMenu}>
+                  Tenant Dashboard
+                </MobileMenuLink>
+
+                <MobileMenuLink
+                  href="/dashboard/tenant/applications"
+                  onClick={closeMenu}
+                >
+                  Applications
+                </MobileMenuLink>
+
+                <MobileMenuLink href="/dashboard/tenant/leases" onClick={closeMenu}>
+                  Leases
+                </MobileMenuLink>
+
+                <MobileMenuLink
+                  href="/dashboard/tenant/payments"
+                  onClick={closeMenu}
+                >
+                  Payments
+                </MobileMenuLink>
+
+                <MobileMenuLink
+                  href="/dashboard/tenant/maintenance"
+                  onClick={closeMenu}
+                >
+                  Maintenance
+                </MobileMenuLink>
+
+                <MobileMenuLink
+                  href="/dashboard/tenant/documents"
+                  onClick={closeMenu}
+                >
+                  Documents
+                </MobileMenuLink>
+              </MenuSection>
+            )}
+
+            {loggedIn && (
+              <MenuSection title="Account">
+                {showMessages && (
+                  <MobileMenuLink href={messagesHref()} onClick={closeMenu}>
+                    <span className="flex w-full items-center justify-between gap-3">
+                      <span>{messagesLabel()}</span>
+
+                      {unreadMessages > 0 && (
+                        <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
+                          {unreadMessages > 9 ? "9+" : unreadMessages}
+                        </span>
+                      )}
+                    </span>
+                  </MobileMenuLink>
+                )}
+
+                <MobileMenuLink
+                  href="/dashboard/notifications"
+                  onClick={closeMenu}
+                >
+                  Notifications
+                </MobileMenuLink>
+              </MenuSection>
+            )}
+
+            <MenuSection title="Browse">
               <MobileMenuLink href="/listings" onClick={closeMenu}>
                 Browse Rentals
               </MobileMenuLink>
@@ -388,132 +643,12 @@ export default function Header() {
               <MobileMenuLink href="/contact" onClick={closeMenu}>
                 Contact Us
               </MobileMenuLink>
-
-              {loggedIn && (
-                <>
-                  <MobileMenuLink href={dashboardHref()} onClick={closeMenu}>
-                    {dashboardLabel()}
-                  </MobileMenuLink>
-
-                  {role === "admin" && (
-                    <>
-                      <MobileMenuLink
-                        href="/admin/contact-messages"
-                        onClick={closeMenu}
-                      >
-                        <span className="flex w-full items-center justify-between gap-3">
-                          <span>Contact Messages</span>
-
-                          {unreadMessages > 0 && (
-                            <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
-                              {unreadMessages > 9 ? "9+" : unreadMessages}
-                            </span>
-                          )}
-                        </span>
-                      </MobileMenuLink>
-
-                      <MobileMenuLink href="/admin/listings" onClick={closeMenu}>
-                        Listings
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/admin/applications"
-                        onClick={closeMenu}
-                      >
-                        Applications
-                      </MobileMenuLink>
-
-                      <MobileMenuLink href="/admin/users" onClick={closeMenu}>
-                        Users
-                      </MobileMenuLink>
-                    </>
-                  )}
-
-                  {role === "landlord" && (
-                    <>
-                      <MobileMenuLink
-                        href="/dashboard/landlord/properties/new"
-                        onClick={closeMenu}
-                      >
-                        Post New Listing
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/dashboard/landlord/payments"
-                        onClick={closeMenu}
-                      >
-                        Payments
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/dashboard/landlord/maintenance"
-                        onClick={closeMenu}
-                      >
-                        Maintenance
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/dashboard/landlord/lease-builder"
-                        onClick={closeMenu}
-                      >
-                        Lease Builder
-                      </MobileMenuLink>
-                    </>
-                  )}
-
-                  {role === "tenant" && (
-                    <>
-                      <MobileMenuLink
-                        href="/dashboard/tenant/payments"
-                        onClick={closeMenu}
-                      >
-                        Payments
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/dashboard/tenant/maintenance"
-                        onClick={closeMenu}
-                      >
-                        Maintenance
-                      </MobileMenuLink>
-
-                      <MobileMenuLink
-                        href="/dashboard/tenant/documents"
-                        onClick={closeMenu}
-                      >
-                        Documents
-                      </MobileMenuLink>
-                    </>
-                  )}
-
-                  {(role === "tenant" || role === "landlord") && (
-                    <MobileMenuLink href={messagesHref()} onClick={closeMenu}>
-                      <span className="flex w-full items-center justify-between gap-3">
-                        <span>Messages</span>
-
-                        {unreadMessages > 0 && (
-                          <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
-                            {unreadMessages > 9 ? "9+" : unreadMessages}
-                          </span>
-                        )}
-                      </span>
-                    </MobileMenuLink>
-                  )}
-
-                  <MobileMenuLink
-                    href="/dashboard/notifications"
-                    onClick={closeMenu}
-                  >
-                    Notifications
-                  </MobileMenuLink>
-                </>
-              )}
-            </nav>
+            </MenuSection>
 
             {loggedIn && (
               <div className="mt-5 rounded-[1.5rem] bg-white p-4 shadow-sm ring-1 ring-[#ded6c8]">
                 <p className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-500">
-                  Account
+                  Logout
                 </p>
 
                 <LogoutButton />
@@ -523,6 +658,24 @@ export default function Header() {
         </div>
       )}
     </>
+  );
+}
+
+function MenuSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mt-5">
+      <p className="mb-3 px-1 text-xs font-black uppercase tracking-[0.2em] text-[#7b6f5f]">
+        {title}
+      </p>
+
+      <div className="grid gap-3">{children}</div>
+    </section>
   );
 }
 
