@@ -20,8 +20,8 @@ type Property = {
   zip_code?: string | null;
   neighborhood?: string | null;
   available_date?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
   description: string | null;
   pet_policy: string | null;
   status: string;
@@ -35,12 +35,6 @@ type ListingsClientProps = {
 
 type SortOption = "newest" | "rent_low" | "rent_high";
 type ViewMode = "list" | "map";
-
-type MapLocation = {
-  listingId: string;
-  lat: number;
-  lng: number;
-};
 
 declare global {
   interface Window {
@@ -71,7 +65,9 @@ function formatRoom(
   singular: string,
   plural: string
 ) {
-  if (value === null || value === undefined || value === "") return `— ${plural}`;
+  if (value === null || value === undefined || value === "") {
+    return `— ${plural}`;
+  }
 
   if (String(value).toLowerCase() === "studio") return "Studio";
 
@@ -98,16 +94,14 @@ function petPolicyMatches(listingPolicy: string | null, selectedPolicy: string) 
   return (listingPolicy || "").toLowerCase() === selectedPolicy.toLowerCase();
 }
 
-function getListingAddress(listing: Property) {
-  return [
-    listing.street_address,
-    listing.neighborhood,
-    listing.city,
-    listing.state,
-    listing.zip_code,
-  ]
-    .filter(Boolean)
-    .join(", ");
+function getCoordinate(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return null;
+
+  return numberValue;
 }
 
 function loadGoogleMaps() {
@@ -152,11 +146,7 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-
   const [mapError, setMapError] = useState("");
-  const [mapLocations, setMapLocations] = useState<Record<string, MapLocation>>(
-    {}
-  );
 
   const mapRef = useRef<HTMLDivElement | null>(null);
 
@@ -196,10 +186,14 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
         listingBeds === beds ||
         (beds === "4+" && Number(listingBeds) >= 4);
 
+      const selectedBathNumber = Number(baths.replace("+", ""));
+
       const matchesBaths =
         !baths ||
         baths === "any" ||
-        Number(listingBaths) >= Number(baths.replace("+", ""));
+        (listingBaths !== "" &&
+          Number.isFinite(Number(listingBaths)) &&
+          Number(listingBaths) >= selectedBathNumber);
 
       const matchesPetPolicy = petPolicyMatches(listing.pet_policy, petPolicy);
 
@@ -220,7 +214,7 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
       );
     });
 
-    return filtered.sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       if (sortBy === "rent_low") return a.monthly_rent - b.monthly_rent;
       if (sortBy === "rent_high") return b.monthly_rent - a.monthly_rent;
 
@@ -257,10 +251,8 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
           return;
         }
 
-        const initialCenter = { lat: 40.8568, lng: -74.1285 };
-
         const map = new google.maps.Map(mapRef.current, {
-          center: initialCenter,
+          center: { lat: 40.8568, lng: -74.1285 },
           zoom: 11,
           mapTypeControl: false,
           streetViewControl: false,
@@ -268,75 +260,63 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
         });
 
         const bounds = new google.maps.LatLngBounds();
-let markerCount = 0;
+        let markerCount = 0;
 
-for (const listing of filteredListings) {
-  const rawLat = listing.latitude;
-  const rawLng = listing.longitude;
+        for (const listing of filteredListings) {
+          const lat = getCoordinate(listing.latitude);
+          const lng = getCoordinate(listing.longitude);
 
-  const lat =
-    rawLat !== null && rawLat !== undefined ? Number(rawLat) : null;
+          if (lat === null || lng === null) {
+            continue;
+          }
 
-  const lng =
-    rawLng !== null && rawLng !== undefined ? Number(rawLng) : null;
+          const position = { lat, lng };
 
-  if (
-    lat === null ||
-    lng === null ||
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng)
-  ) {
-    continue;
-  }
+          const marker = new google.maps.Marker({
+            position,
+            map,
+            title: listing.title,
+          });
 
-  const position = { lat, lng };
+          const infoWindow = new google.maps.InfoWindow({
+            content: `
+              <div style="max-width:220px">
+                <strong>${listing.title}</strong>
+                <div style="margin-top:6px">${formatMoney(
+                  listing.monthly_rent
+                )}</div>
+                <div style="margin-top:6px">${[
+                  listing.city,
+                  listing.state,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}</div>
+                <a href="/listings/${
+                  listing.id
+                }" style="display:inline-block;margin-top:10px;font-weight:700">
+                  View listing
+                </a>
+              </div>
+            `,
+          });
 
-  const marker = new google.maps.Marker({
-    position,
-    map,
-    title: listing.title,
-  });
+          marker.addListener("click", () => {
+            infoWindow.open(map, marker);
+          });
 
-  const infoWindow = new google.maps.InfoWindow({
-    content: `
-      <div style="max-width:220px">
-        <strong>${listing.title}</strong>
-        <div style="margin-top:6px">${formatMoney(listing.monthly_rent)}</div>
-        <div style="margin-top:6px">${[listing.city, listing.state]
-          .filter(Boolean)
-          .join(", ")}</div>
-        <a href="/listings/${listing.id}" style="display:inline-block;margin-top:10px;font-weight:700">
-          View listing
-        </a>
-      </div>
-    `,
-  });
+          bounds.extend(position);
+          markerCount += 1;
+        }
 
-  marker.addListener("click", () => {
-    infoWindow.open(map, marker);
-  });
-
-  bounds.extend(position);
-  markerCount += 1;
-}
-
-if (markerCount > 0) {
-  map.fitBounds(bounds);
-
-  if (markerCount === 1) {
-    map.setZoom(13);
-  }
-} else {
-  setMapError(
-    "No map-ready listings found yet. Add latitude/longitude to listings."
-  );
-}
-
-        if (!bounds.isEmpty()) {
+        if (markerCount > 0) {
           map.fitBounds(bounds);
+
+          if (markerCount === 1) {
+            map.setZoom(13);
+          }
         } else {
           setMapError(
-            "No map-ready listings found yet. Add latitude/longitude or full addresses to listings."
+            "No map-ready listings found yet. Add latitude/longitude to listings."
           );
         }
       } catch (error) {
@@ -347,7 +327,6 @@ if (markerCount > 0) {
     }
 
     buildMap();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, filteredListings]);
 
   function clearFilters() {
@@ -608,6 +587,7 @@ function ListingCard({ listing }: { listing: Property }) {
     >
       <div className="relative h-60 overflow-hidden bg-[#e8ddca]">
         {firstPhoto ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={firstPhoto}
             alt={listing.title}
@@ -687,6 +667,7 @@ function SmallListingCard({ listing }: { listing: Property }) {
       <div className="grid grid-cols-[110px_1fr]">
         <div className="h-full min-h-[130px] bg-[#e8ddca]">
           {firstPhoto ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={firstPhoto}
               alt={listing.title}

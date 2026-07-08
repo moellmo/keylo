@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
@@ -49,6 +49,8 @@ type PropertyRow = {
   state: string | null;
   zip_code: string | null;
   neighborhood: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
   description: string | null;
   pet_policy: string | null;
   amenities: string[] | null;
@@ -61,14 +63,73 @@ type CompanyMembership = {
   role: CompanyRole;
 };
 
+declare global {
+  interface Window {
+    google?: any;
+    keyloGoogleMapsLoading?: Promise<void>;
+  }
+}
+
 function canEditCompanyListing(role: CompanyRole) {
   return role === "owner" || role === "admin" || role === "manager";
+}
+
+function loadGoogleMaps() {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    return Promise.reject(new Error("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY."));
+  }
+
+  if (window.google?.maps?.places) {
+    return Promise.resolve();
+  }
+
+  if (window.keyloGoogleMapsLoading) {
+    return window.keyloGoogleMapsLoading;
+  }
+
+  window.keyloGoogleMapsLoading = new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load Google Maps."));
+
+    document.head.appendChild(script);
+  });
+
+  return window.keyloGoogleMapsLoading;
+}
+
+function getAddressComponent(place: any, type: string, shortName = false) {
+  const component = place.address_components?.find((item: any) =>
+    item.types?.includes(type)
+  );
+
+  if (!component) return "";
+
+  return shortName ? component.short_name || "" : component.long_name || "";
+}
+
+function getCoordinate(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return null;
+
+  return numberValue;
 }
 
 export default function EditListingPage() {
   const params = useParams();
   const router = useRouter();
   const propertyId = params.id as string;
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -80,6 +141,9 @@ export default function EditListingPage() {
   const [companyRole, setCompanyRole] = useState<CompanyRole>("");
   const [landlordCompanyId, setLandlordCompanyId] = useState<string | null>(
     null
+  );
+  const [addressHelper, setAddressHelper] = useState(
+    "Start typing and select an address from Google to update the map location."
   );
 
   const [form, setForm] = useState({
@@ -93,6 +157,8 @@ export default function EditListingPage() {
     state: "",
     zip_code: "",
     neighborhood: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
     description: "",
     pet_policy: "",
     amenities: [] as string[],
@@ -103,6 +169,104 @@ export default function EditListingPage() {
     loadListing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId]);
+
+  useEffect(() => {
+    if (loading || !allowed) return;
+
+    let autocomplete: any = null;
+    let listener: any = null;
+
+    async function setupAutocomplete() {
+      if (!addressInputRef.current) return;
+
+      try {
+        await loadGoogleMaps();
+
+        const google = window.google;
+
+        if (!google?.maps?.places || !addressInputRef.current) {
+          setAddressHelper("Google address autocomplete is not available.");
+          return;
+        }
+
+        autocomplete = new google.maps.places.Autocomplete(
+          addressInputRef.current,
+          {
+            types: ["address"],
+            fields: ["address_components", "formatted_address", "geometry"],
+          }
+        );
+
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+
+          if (!place?.geometry?.location) {
+            setAddressHelper(
+              "Please select an address from the dropdown so Keylo can place it on the map."
+            );
+            return;
+          }
+
+          const streetNumber = getAddressComponent(place, "street_number");
+          const route = getAddressComponent(place, "route");
+          const city =
+            getAddressComponent(place, "locality") ||
+            getAddressComponent(place, "postal_town") ||
+            getAddressComponent(place, "sublocality") ||
+            getAddressComponent(place, "administrative_area_level_2");
+
+          const state = getAddressComponent(
+            place,
+            "administrative_area_level_1",
+            true
+          );
+
+          const zipCode = getAddressComponent(place, "postal_code");
+          const neighborhood =
+            getAddressComponent(place, "neighborhood") ||
+            getAddressComponent(place, "sublocality") ||
+            "";
+
+          const latitude = place.geometry.location.lat();
+          const longitude = place.geometry.location.lng();
+
+          setForm((current) => ({
+            ...current,
+            street_address:
+              [streetNumber, route].filter(Boolean).join(" ") ||
+              place.formatted_address ||
+              current.street_address,
+            city: city || current.city,
+            state: state || current.state,
+            zip_code: zipCode || current.zip_code,
+            neighborhood: neighborhood || current.neighborhood,
+            latitude,
+            longitude,
+          }));
+
+          setAddressHelper(
+            `Map location saved: ${latitude.toFixed(5)}, ${longitude.toFixed(
+              5
+            )}`
+          );
+        });
+      } catch (error) {
+        setAddressHelper(
+          error instanceof Error
+            ? error.message
+            : "Google address autocomplete could not load."
+        );
+      }
+    }
+
+    setupAutocomplete();
+
+    return () => {
+      if (listener?.remove) {
+        listener.remove();
+      }
+    };
+  }, [loading, allowed]);
 
   async function loadListing() {
     setLoading(true);
@@ -196,6 +360,8 @@ export default function EditListingPage() {
     }
 
     const propertyStatus = property.status || "draft";
+    const latitude = getCoordinate(property.latitude);
+    const longitude = getCoordinate(property.longitude);
 
     setForm({
       title: property.title || "",
@@ -208,11 +374,25 @@ export default function EditListingPage() {
       state: property.state || "",
       zip_code: property.zip_code || "",
       neighborhood: property.neighborhood || "",
+      latitude,
+      longitude,
       description: property.description || "",
       pet_policy: property.pet_policy || "",
       amenities: property.amenities || [],
       status: propertyStatus,
     });
+
+    if (latitude !== null && longitude !== null) {
+      setAddressHelper(
+        `Current map location saved: ${latitude.toFixed(
+          5
+        )}, ${longitude.toFixed(5)}`
+      );
+    } else {
+      setAddressHelper(
+        "Start typing and select an address from Google to update the map location."
+      );
+    }
 
     setOriginalStatus(propertyStatus);
     setCompanyRole(currentCompanyRole);
@@ -227,11 +407,27 @@ export default function EditListingPage() {
     setLoading(false);
   }
 
-  function updateField(field: keyof typeof form, value: string | string[]) {
+  function updateField(
+    field: keyof typeof form,
+    value: string | string[] | number | null
+  ) {
     setForm((current) => ({
       ...current,
       [field]: value,
     }));
+  }
+
+  function updateAddressField(field: keyof typeof form, value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      latitude: null,
+      longitude: null,
+    }));
+
+    setAddressHelper(
+      "Select an address from Google to save the updated map location."
+    );
   }
 
   function toggleAmenity(amenity: string) {
@@ -334,6 +530,8 @@ export default function EditListingPage() {
         state: form.state,
         zip_code: form.zip_code,
         neighborhood: form.neighborhood,
+        latitude: form.latitude,
+        longitude: form.longitude,
         description: form.description,
         pet_policy: form.pet_policy,
         amenities: form.amenities,
@@ -588,12 +786,24 @@ export default function EditListingPage() {
                     Street address
                   </label>
                   <input
+                    ref={addressInputRef}
                     value={form.street_address}
                     onChange={(e) =>
-                      updateField("street_address", e.target.value)
+                      updateAddressField("street_address", e.target.value)
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
+                    placeholder="Start typing an address..."
                   />
+
+                  <p
+                    className={`mt-2 text-sm font-bold ${
+                      form.latitude && form.longitude
+                        ? "text-green-700"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {addressHelper}
+                  </p>
                 </div>
 
                 <div>
@@ -602,7 +812,7 @@ export default function EditListingPage() {
                   </label>
                   <input
                     value={form.city}
-                    onChange={(e) => updateField("city", e.target.value)}
+                    onChange={(e) => updateAddressField("city", e.target.value)}
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   />
                 </div>
@@ -613,7 +823,9 @@ export default function EditListingPage() {
                   </label>
                   <input
                     value={form.state}
-                    onChange={(e) => updateField("state", e.target.value)}
+                    onChange={(e) =>
+                      updateAddressField("state", e.target.value)
+                    }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   />
                 </div>
@@ -624,7 +836,9 @@ export default function EditListingPage() {
                   </label>
                   <input
                     value={form.zip_code}
-                    onChange={(e) => updateField("zip_code", e.target.value)}
+                    onChange={(e) =>
+                      updateAddressField("zip_code", e.target.value)
+                    }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   />
                 </div>
@@ -636,7 +850,7 @@ export default function EditListingPage() {
                   <input
                     value={form.neighborhood}
                     onChange={(e) =>
-                      updateField("neighborhood", e.target.value)
+                      updateAddressField("neighborhood", e.target.value)
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   />

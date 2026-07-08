@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 const amenityOptions = [
@@ -23,16 +23,20 @@ type Company = {
 type CompanyMembership = {
   company_id: string;
   role: string;
-  landlord_companies:
-    | Company
-    | Company[]
-    | null;
+  landlord_companies: Company | Company[] | null;
 };
 
 type VerificationRow = {
   landlord_id: string;
   verification_status: string;
 };
+
+declare global {
+  interface Window {
+    google?: any;
+    keyloGoogleMapsLoading?: Promise<void>;
+  }
+}
 
 function getCompanyFromMembership(membership: CompanyMembership | null) {
   if (!membership) return null;
@@ -44,13 +48,58 @@ function getCompanyFromMembership(membership: CompanyMembership | null) {
   return membership.landlord_companies;
 }
 
+function loadGoogleMaps() {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    return Promise.reject(new Error("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY."));
+  }
+
+  if (window.google?.maps?.places) {
+    return Promise.resolve();
+  }
+
+  if (window.keyloGoogleMapsLoading) {
+    return window.keyloGoogleMapsLoading;
+  }
+
+  window.keyloGoogleMapsLoading = new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load Google Maps."));
+
+    document.head.appendChild(script);
+  });
+
+  return window.keyloGoogleMapsLoading;
+}
+
+function getAddressComponent(place: any, type: string, shortName = false) {
+  const component = place.address_components?.find((item: any) =>
+    item.types?.includes(type)
+  );
+
+  if (!component) return "";
+
+  return shortName ? component.short_name || "" : component.long_name || "";
+}
+
 export default function NewListingPage() {
   const router = useRouter();
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [loadingVerification, setLoadingVerification] = useState(true);
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
+  const [addressHelper, setAddressHelper] = useState(
+    "Start typing and select an address from Google to place this rental on the map."
+  );
 
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState("");
@@ -74,6 +123,8 @@ export default function NewListingPage() {
     description: "",
     pet_policy: "",
     amenities: [] as string[],
+    latitude: null as number | null,
+    longitude: null as number | null,
   });
 
   useEffect(() => {
@@ -190,11 +241,123 @@ export default function NewListingPage() {
     loadVerificationStatus();
   }, []);
 
-  function updateField(field: keyof typeof form, value: string | string[]) {
+  useEffect(() => {
+    let autocomplete: any = null;
+    let listener: any = null;
+
+    async function setupAutocomplete() {
+      if (!addressInputRef.current) return;
+
+      try {
+        await loadGoogleMaps();
+
+        const google = window.google;
+
+        if (!google?.maps?.places || !addressInputRef.current) {
+          setAddressHelper("Google address autocomplete is not available.");
+          return;
+        }
+
+        autocomplete = new google.maps.places.Autocomplete(
+          addressInputRef.current,
+          {
+            types: ["address"],
+            fields: ["address_components", "formatted_address", "geometry"],
+          }
+        );
+
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+
+          if (!place?.geometry?.location) {
+            setAddressHelper(
+              "Please select an address from the dropdown so Keylo can place it on the map."
+            );
+            return;
+          }
+
+          const streetNumber = getAddressComponent(place, "street_number");
+          const route = getAddressComponent(place, "route");
+          const city =
+            getAddressComponent(place, "locality") ||
+            getAddressComponent(place, "postal_town") ||
+            getAddressComponent(place, "sublocality") ||
+            getAddressComponent(place, "administrative_area_level_2");
+
+          const state = getAddressComponent(
+            place,
+            "administrative_area_level_1",
+            true
+          );
+
+          const zipCode = getAddressComponent(place, "postal_code");
+          const neighborhood =
+            getAddressComponent(place, "neighborhood") ||
+            getAddressComponent(place, "sublocality") ||
+            "";
+
+          const latitude = place.geometry.location.lat();
+          const longitude = place.geometry.location.lng();
+
+          setForm((current) => ({
+            ...current,
+            street_address:
+              [streetNumber, route].filter(Boolean).join(" ") ||
+              place.formatted_address ||
+              current.street_address,
+            city: city || current.city,
+            state: state || current.state,
+            zip_code: zipCode || current.zip_code,
+            neighborhood: neighborhood || current.neighborhood,
+            latitude,
+            longitude,
+          }));
+
+          setAddressHelper(
+            `Map location saved: ${latitude.toFixed(5)}, ${longitude.toFixed(
+              5
+            )}`
+          );
+        });
+      } catch (error) {
+        setAddressHelper(
+          error instanceof Error
+            ? error.message
+            : "Google address autocomplete could not load."
+        );
+      }
+    }
+
+    setupAutocomplete();
+
+    return () => {
+      if (listener?.remove) {
+        listener.remove();
+      }
+    };
+  }, []);
+
+  function updateField(
+    field: keyof typeof form,
+    value: string | string[] | number | null
+  ) {
     setForm((current) => ({
       ...current,
       [field]: value,
     }));
+  }
+
+  function updateAddressField(field: keyof typeof form, value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      latitude: null,
+      longitude: null,
+    }));
+
+    setAddressHelper(
+      "Select an address from Google to save the map location for this listing."
+    );
   }
 
   function toggleAmenity(amenity: string) {
@@ -284,6 +447,8 @@ export default function NewListingPage() {
         state: form.state,
         zip_code: form.zip_code,
         neighborhood: form.neighborhood,
+        latitude: form.latitude,
+        longitude: form.longitude,
         description: form.description,
         pet_policy: form.pet_policy,
         amenities: form.amenities,
@@ -444,30 +609,7 @@ export default function NewListingPage() {
 
               <p className="mt-3 font-bold leading-7 text-amber-800">
                 This company needs an approved landlord verification before
-                submitting a listing for review. The company owner can upload ID,
-                proof of ownership, tax bill, utility bill, or management
-                agreement.
-              </p>
-
-              <Link
-                href="/dashboard/landlord/verification"
-                className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
-              >
-                Go to Verification
-              </Link>
-            </div>
-          )}
-
-          {role !== "admin" && !companyId && verificationStatus !== "verified" && (
-            <div className="mt-6 rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-200">
-              <h2 className="text-2xl font-black text-amber-900">
-                Verification Required
-              </h2>
-
-              <p className="mt-3 font-bold leading-7 text-amber-800">
-                You need to complete landlord verification before submitting a
-                listing for review. You can upload your ID, proof of ownership,
-                tax bill, utility bill, or management agreement.
+                submitting a listing for review.
               </p>
 
               <Link
@@ -578,20 +720,31 @@ export default function NewListingPage() {
                     Street address
                   </label>
                   <input
+                    ref={addressInputRef}
                     value={form.street_address}
                     onChange={(e) =>
-                      updateField("street_address", e.target.value)
+                      updateAddressField("street_address", e.target.value)
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="123 Main Street"
+                    placeholder="Start typing an address..."
                   />
+
+                  <p
+                    className={`mt-2 text-sm font-bold ${
+                      form.latitude && form.longitude
+                        ? "text-green-700"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {addressHelper}
+                  </p>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-black">City *</label>
                   <input
                     value={form.city}
-                    onChange={(e) => updateField("city", e.target.value)}
+                    onChange={(e) => updateAddressField("city", e.target.value)}
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                     placeholder="Monroe"
                   />
@@ -603,7 +756,9 @@ export default function NewListingPage() {
                   </label>
                   <input
                     value={form.state}
-                    onChange={(e) => updateField("state", e.target.value)}
+                    onChange={(e) =>
+                      updateAddressField("state", e.target.value)
+                    }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                     placeholder="NY"
                   />
@@ -615,7 +770,9 @@ export default function NewListingPage() {
                   </label>
                   <input
                     value={form.zip_code}
-                    onChange={(e) => updateField("zip_code", e.target.value)}
+                    onChange={(e) =>
+                      updateAddressField("zip_code", e.target.value)
+                    }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                     placeholder="10950"
                   />
@@ -628,7 +785,7 @@ export default function NewListingPage() {
                   <input
                     value={form.neighborhood}
                     onChange={(e) =>
-                      updateField("neighborhood", e.target.value)
+                      updateAddressField("neighborhood", e.target.value)
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                     placeholder="Optional"
