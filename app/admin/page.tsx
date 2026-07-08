@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import AdminListingStatusButton from "./AdminListingStatusButton";
 import UserRoleSelect from "./UserRoleSelect";
@@ -128,8 +128,6 @@ type LeaseRenewalRequest = {
   landlord_message: string | null;
   created_at: string;
 };
-
-const PREVIEW_LIMIT = 6;
 
 function formatMoneyFromCents(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, {
@@ -502,10 +500,6 @@ export default function AdminPage() {
   }
 
   const dashboardData = useMemo(() => {
-    const publishedListings = properties.filter(
-      (property) => property.status === "published"
-    ).length;
-
     const pendingListings = properties.filter(
       (property) => property.status === "pending"
     );
@@ -583,7 +577,6 @@ export default function AdminPage() {
     );
 
     return {
-      publishedListings,
       pendingListings,
       rejectedListings,
       pendingApplications,
@@ -615,21 +608,9 @@ export default function AdminPage() {
 
   const tabs: { key: AdminTab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
-    {
-      key: "renewals",
-      label: "Renewals",
-      count: leaseRenewalRequests.length,
-    },
-    {
-      key: "listings",
-      label: "Listings",
-      count: properties.length,
-    },
-    {
-      key: "applications",
-      label: "Applications",
-      count: applications.length,
-    },
+    { key: "renewals", label: "Renewals", count: leaseRenewalRequests.length },
+    { key: "listings", label: "Listings", count: properties.length },
+    { key: "applications", label: "Applications", count: applications.length },
     {
       key: "operations",
       label: "Ops",
@@ -638,16 +619,8 @@ export default function AdminPage() {
         maintenanceRequests.length +
         screeningRequests.length,
     },
-    {
-      key: "leases",
-      label: "Leases",
-      count: leases.length,
-    },
-    {
-      key: "users",
-      label: "Users",
-      count: profiles.length,
-    },
+    { key: "leases", label: "Leases", count: leases.length },
+    { key: "users", label: "Users", count: profiles.length },
   ];
 
   if (loading) {
@@ -667,6 +640,7 @@ export default function AdminPage() {
           <div className="rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
             <h1 className="text-3xl font-black">Admin access required</h1>
             <p className="mt-3 text-slate-600">{message}</p>
+
             <Link
               href="/auth/login"
               className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
@@ -740,45 +714,49 @@ export default function AdminPage() {
         )}
 
         <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
-  <StatCard title="Users" value={profiles.length} href="/admin/users" />
-  <StatCard title="Listings" value={properties.length} href="/admin/listings" />
-  <StatCard
-    title="Applications"
-    value={applications.length}
-    href="/admin/applications"
-  />
-  <StatCard title="Leases" value={leases.length} href="/admin/leases" />
-  <StatCard
-    title="Renewals"
-    value={leaseRenewalRequests.length}
-    href="/admin/renewals"
-  />
-  <StatCard
-    title="Maintenance"
-    value={maintenanceRequests.length}
-    href="/admin/maintenance"
-  />
-  <StatCard
-    title="Screenings"
-    value={screeningRequests.length}
-    href="/admin/screenings"
-  />
-  <StatCard
-    title="Rent Charges"
-    value={rentCharges.length}
-    href="/admin/payments"
-  />
-  <StatCard
-    title="Pending Listings"
-    value={dashboardData.pendingListings.length}
-    href="/admin/listings"
-  />
-  <StatCard
-    title="Unpaid"
-    value={formatMoneyFromCents(dashboardData.unpaidBalance)}
-    href="/admin/payments"
-  />
-</section>
+          <StatCard title="Users" value={profiles.length} href="/admin/users" />
+          <StatCard
+            title="Listings"
+            value={properties.length}
+            href="/admin/listings"
+          />
+          <StatCard
+            title="Applications"
+            value={applications.length}
+            href="/admin/applications"
+          />
+          <StatCard title="Leases" value={leases.length} href="/admin/leases" />
+          <StatCard
+            title="Renewals"
+            value={leaseRenewalRequests.length}
+            href="/admin/renewals"
+          />
+          <StatCard
+            title="Maintenance"
+            value={maintenanceRequests.length}
+            href="/admin/maintenance"
+          />
+          <StatCard
+            title="Screenings"
+            value={screeningRequests.length}
+            href="/admin/screenings"
+          />
+          <StatCard
+            title="Rent Charges"
+            value={rentCharges.length}
+            href="/admin/payments"
+          />
+          <StatCard
+            title="Pending Listings"
+            value={dashboardData.pendingListings.length}
+            href="/admin/listings"
+          />
+          <StatCard
+            title="Unpaid"
+            value={formatMoneyFromCents(dashboardData.unpaidBalance)}
+            href="/admin/payments"
+          />
+        </section>
 
         <section className="mt-8 rounded-[2rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
           <div className="flex gap-2 overflow-x-auto p-2">
@@ -967,31 +945,13 @@ export default function AdminPage() {
               id="renewals"
               className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
             >
-              <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Renewals & Move-Outs</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Track tenant renewal requests, move-out plans, landlord offers, and
-        completed renewal leases. Use the full renewals page for search,
-        filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {leaseRenewalRequests.length} updates
-      </span>
-
-      <Link
-        href="/admin/renewals"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Renewals
-      </Link>
-    </div>
-  </div>
-</div>
+              <SectionTitleWithButton
+                title="Renewals & Move-Outs"
+                text="Track tenant renewal requests, move-out plans, landlord offers, and completed renewal leases. Use the full renewals page for search, filters, and pagination."
+                badge={`${leaseRenewalRequests.length} updates`}
+                buttonText="View All Renewals"
+                href="/admin/renewals"
+              />
 
               <div className="grid gap-5 border-b border-slate-200 p-6 md:grid-cols-2 xl:grid-cols-5">
                 <StatCard
@@ -1084,30 +1044,13 @@ export default function AdminPage() {
             </section>
 
             <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Listings</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Showing latest 25 listings. Use the full listings page for search,
-        status filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {properties.length} loaded
-      </span>
-
-      <Link
-        href="/admin/listings"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Listings
-      </Link>
-    </div>
-  </div>
-</div>
+              <SectionTitleWithButton
+                title="Recent Listings"
+                text="Showing latest 25 listings. Use the full listings page for search, status filters, and pagination."
+                badge={`${properties.length} loaded`}
+                buttonText="View All Listings"
+                href="/admin/listings"
+              />
 
               {properties.length > 0 ? (
                 <div className="divide-y divide-slate-200">
@@ -1128,30 +1071,13 @@ export default function AdminPage() {
 
         {activeTab === "applications" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Applications</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Showing latest 25 applications. Use the full applications page for
-        search, status filters, screening filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {applications.length} loaded
-      </span>
-
-      <Link
-        href="/admin/applications"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Applications
-      </Link>
-    </div>
-  </div>
-</div>
+            <SectionTitleWithButton
+              title="Recent Applications"
+              text="Showing latest 25 applications. Use the full applications page for search, status filters, screening filters, and pagination."
+              badge={`${applications.length} loaded`}
+              buttonText="View All Applications"
+              href="/admin/applications"
+            />
 
             {applications.length > 0 ? (
               <div className="divide-y divide-slate-200">
@@ -1173,170 +1099,75 @@ export default function AdminPage() {
 
         {activeTab === "operations" && (
           <>
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Screening Requests</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Track tenant consent for future TransUnion/background integrations. Use
-        the full screenings page for search, status filters, type filters, and
-        pagination.
-      </p>
-    </div>
+            <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Operations
+              </p>
 
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {dashboardData.pendingScreenings.length} pending
-      </span>
+              <h2 className="mt-2 text-3xl font-black">
+                Payments, Maintenance & Screenings
+              </h2>
 
-      <Link
-        href="/admin/screenings"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Screenings
-      </Link>
-    </div>
-  </div>
-</div>
+              <p className="mt-2 max-w-3xl leading-7 text-slate-600">
+                Use these full admin pages for search, filters, and pagination.
+              </p>
 
-              {screeningRequests.length > 0 ? (
-                <div className="divide-y divide-slate-200">
-                  {screeningRequests.slice(0, 25).map((screening) => {
-                    const matchingApplication = applications.find(
-                      (application) => application.id === screening.application_id
-                    );
-
-                    const property = matchingApplication
-                      ? getApplicationProperty(matchingApplication)
-                      : null;
-
-                    return (
-                      <ScreeningRow
-                        key={screening.id}
-                        screening={screening}
-                        application={matchingApplication || null}
-                        property={property}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptySection
-                  title="No screening requests yet"
-                  text="Tenant screening consent requests will appear here."
+              <div className="mt-6 grid gap-5 md:grid-cols-3">
+                <OpsCard
+                  title="Payments"
+                  count={rentCharges.length}
+                  alert={`${dashboardData.unpaidCharges.length} unpaid`}
+                  text="Review rent, deposits, late fees, paid, unpaid, overdue, and waived charges."
+                  href="/admin/payments"
                 />
-              )}
+
+                <OpsCard
+                  title="Maintenance"
+                  count={maintenanceRequests.length}
+                  alert={`${dashboardData.activeMaintenance.length} active`}
+                  text="Review repair requests, urgent issues, open work, and resolved maintenance."
+                  href="/admin/maintenance"
+                />
+
+                <OpsCard
+                  title="Screenings"
+                  count={screeningRequests.length}
+                  alert={`${dashboardData.pendingScreenings.length} pending`}
+                  text="Review tenant consent, screening requests, provider status, and completed checks."
+                  href="/admin/screenings"
+                />
+              </div>
             </section>
 
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Rent / Deposit Charges</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Review charges created for leases. Use the full payments page for
-        search, status filters, charge type filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {dashboardData.unpaidCharges.length} unpaid
-      </span>
-
-      <Link
-        href="/admin/payments"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Payments
-      </Link>
-    </div>
-  </div>
-</div>
-
-              {rentCharges.length > 0 ? (
-                <div className="divide-y divide-slate-200">
-                  {rentCharges.slice(0, 25).map((charge) => (
-                    <RentChargeRow key={charge.id} charge={charge} />
-                  ))}
-                </div>
-              ) : (
-                <EmptySection
-                  title="No charges yet"
-                  text="Rent and deposit charges will appear here."
-                />
-              )}
-            </section>
-
-            <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Maintenance</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Monitor active tenant repair requests. Use the full maintenance page
-        for search, status filters, priority filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {dashboardData.activeMaintenance.length} active
-      </span>
-
-      <Link
-        href="/admin/maintenance"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Maintenance
-      </Link>
-    </div>
-  </div>
-</div>
-
-              {maintenanceRequests.length > 0 ? (
-                <div className="divide-y divide-slate-200">
-                  {maintenanceRequests.slice(0, 25).map((request) => (
-                    <MaintenanceRow key={request.id} request={request} />
-                  ))}
-                </div>
-              ) : (
-                <EmptySection
-                  title="No maintenance requests"
-                  text="Maintenance requests will appear here."
-                />
-              )}
+            <section className="mt-8 grid gap-5 md:grid-cols-3">
+              <StatCard
+                title="Unpaid Balance"
+                value={formatMoneyFromCents(dashboardData.unpaidBalance)}
+                href="/admin/payments"
+              />
+              <StatCard
+                title="Urgent Maintenance"
+                value={dashboardData.urgentMaintenance.length}
+                href="/admin/maintenance"
+              />
+              <StatCard
+                title="Approved Screenings"
+                value={dashboardData.approvedScreenings.length}
+                href="/admin/screenings"
+              />
             </section>
           </>
         )}
 
         {activeTab === "leases" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Recent Leases</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Showing latest 25 leases. Use the full leases page for search, lease
-        status filters, renewal filters, and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {dashboardData.activeLeases.length} active
-      </span>
-
-      <Link
-        href="/admin/leases"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Leases
-      </Link>
-    </div>
-  </div>
-</div>
+            <SectionTitleWithButton
+              title="Recent Leases"
+              text="Showing latest 25 leases. Use the full leases page for search, lease status filters, renewal filters, and pagination."
+              badge={`${dashboardData.activeLeases.length} active`}
+              buttonText="View All Leases"
+              href="/admin/leases"
+            />
 
             {leases.length > 0 ? (
               <div className="divide-y divide-slate-200">
@@ -1345,37 +1176,23 @@ export default function AdminPage() {
                 ))}
               </div>
             ) : (
-              <EmptySection title="No leases yet" text="Leases will appear here." />
+              <EmptySection
+                title="No leases yet"
+                text="Leases will appear here."
+              />
             )}
           </section>
         )}
 
         {activeTab === "users" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="border-b border-slate-200 p-6">
-  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-    <div>
-      <h2 className="text-2xl font-black">Users</h2>
-      <p className="mt-1 text-sm font-bold text-slate-500">
-        Showing latest 50 users. Use the full users page for search, filters,
-        and pagination.
-      </p>
-    </div>
-
-    <div className="flex flex-wrap gap-3">
-      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
-        {profiles.length} loaded
-      </span>
-
-      <Link
-        href="/admin/users"
-        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-      >
-        View All Users
-      </Link>
-    </div>
-  </div>
-</div>
+            <SectionTitleWithButton
+              title="Users"
+              text="Showing latest 50 users. Use the full users page for search, filters, and pagination."
+              badge={`${profiles.length} loaded`}
+              buttonText="View All Users"
+              href="/admin/users"
+            />
 
             {profiles.length > 0 ? (
               <div className="divide-y divide-slate-200">
@@ -1496,6 +1313,44 @@ function SectionHeader({
   );
 }
 
+function SectionTitleWithButton({
+  title,
+  text,
+  badge,
+  buttonText,
+  href,
+}: {
+  title: string;
+  text: string;
+  badge: string;
+  buttonText: string;
+  href: string;
+}) {
+  return (
+    <div className="border-b border-slate-200 p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-black">{title}</h2>
+          <p className="mt-1 text-sm font-bold text-slate-500">{text}</p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+            {badge}
+          </span>
+
+          <Link
+            href={href}
+            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+          >
+            {buttonText}
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewSection({
   title,
   text,
@@ -1503,7 +1358,7 @@ function PreviewSection({
 }: {
   title: string;
   text: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
@@ -1514,7 +1369,7 @@ function PreviewSection({
   );
 }
 
-function PreviewGrid({ children }: { children: React.ReactNode }) {
+function PreviewGrid({ children }: { children: ReactNode }) {
   return <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{children}</div>;
 }
 
@@ -1541,6 +1396,47 @@ function MiniPreview({
       <p className="mt-3 text-4xl font-black">{count}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
     </button>
+  );
+}
+
+function OpsCard({
+  title,
+  count,
+  alert,
+  text,
+  href,
+}: {
+  title: string;
+  count: number;
+  alert: string;
+  text: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-3xl bg-[#f7f4ef] p-6 transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+            {title}
+          </p>
+
+          <p className="mt-3 text-4xl font-black">{count}</p>
+        </div>
+
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">
+          {alert}
+        </span>
+      </div>
+
+      <p className="mt-4 leading-7 text-slate-600">{text}</p>
+
+      <span className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">
+        Open {title}
+      </span>
+    </Link>
   );
 }
 
@@ -1747,7 +1643,9 @@ function LeaseEndingSoonRow({ lease }: { lease: Lease }) {
 
         <p className="mt-2 text-sm font-bold text-slate-500">
           Landlord: {lease.landlord_name || "Not provided"}
-          {lease.monthly_rent ? ` · $${lease.monthly_rent.toLocaleString()}/mo` : ""}
+          {lease.monthly_rent
+            ? ` · $${lease.monthly_rent.toLocaleString()}/mo`
+            : ""}
         </p>
 
         <p className="mt-2 text-sm font-bold text-slate-500">
@@ -1816,115 +1714,6 @@ function ApplicationRow({ application }: { application: Application }) {
   );
 }
 
-function ScreeningRow({
-  screening,
-  application,
-  property,
-}: {
-  screening: ScreeningRequest;
-  application: Application | null;
-  property: { title: string; city: string; state: string } | null;
-}) {
-  return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
-            {application
-              ? `${application.first_name} ${application.last_name}`
-              : "Applicant"}
-          </h3>
-
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${screeningStatusClass(
-              screening.status
-            )}`}
-          >
-            {formatScreeningStatus(screening.status)}
-          </span>
-        </div>
-
-        <p className="mt-2 font-bold text-slate-500">
-          {application?.email || "No email"}
-        </p>
-
-        <p className="mt-2 text-sm font-bold text-slate-500">
-          {property
-            ? `${property.title} · ${property.city}, ${property.state}`
-            : "Unknown listing"}
-        </p>
-      </div>
-
-      <p className="rounded-2xl bg-[#f7f4ef] px-5 py-4 text-sm font-bold text-slate-600">
-        Requested {new Date(screening.requested_at).toLocaleDateString()}
-      </p>
-    </div>
-  );
-}
-
-function RentChargeRow({ charge }: { charge: RentCharge }) {
-  return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">
-            {formatMoneyFromCents(charge.amount_cents)}
-          </h3>
-
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${
-              charge.status === "paid"
-                ? "bg-green-50 text-green-700"
-                : charge.status === "overdue"
-                  ? "bg-red-50 text-red-700"
-                  : "bg-yellow-50 text-yellow-700"
-            }`}
-          >
-            {charge.status}
-          </span>
-        </div>
-
-        <p className="mt-2 text-sm font-bold text-slate-500">
-          Due {charge.due_date}
-        </p>
-      </div>
-
-      <p className="rounded-2xl bg-[#f7f4ef] px-5 py-4 text-sm font-bold text-slate-600">
-        Created {new Date(charge.created_at).toLocaleDateString()}
-      </p>
-    </div>
-  );
-}
-
-function MaintenanceRow({ request }: { request: MaintenanceRequest }) {
-  return (
-    <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-black">{request.title}</h3>
-
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${maintenanceStatusClass(
-              request.status,
-              request.priority
-            )}`}
-          >
-            {request.status}
-          </span>
-
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-            {request.priority}
-          </span>
-        </div>
-
-        <p className="mt-2 text-sm font-bold text-slate-500">
-          Submitted {new Date(request.created_at).toLocaleDateString()}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function LeaseRow({ lease }: { lease: Lease }) {
   return (
     <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
@@ -1951,7 +1740,9 @@ function LeaseRow({ lease }: { lease: Lease }) {
 
         <p className="mt-2 text-sm font-bold text-slate-500">
           Landlord: {lease.landlord_name || "Not provided"}
-          {lease.monthly_rent ? ` · $${lease.monthly_rent.toLocaleString()}/mo` : ""}
+          {lease.monthly_rent
+            ? ` · $${lease.monthly_rent.toLocaleString()}/mo`
+            : ""}
         </p>
       </div>
 
