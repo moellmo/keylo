@@ -10,6 +10,7 @@ type Conversation = {
   property_id: string | null;
   tenant_id: string;
   landlord_id: string;
+  landlord_company_id: string | null;
   subject: string | null;
   last_message: string | null;
   last_message_at: string | null;
@@ -57,6 +58,7 @@ export default function TenantMessagesPage() {
 
   async function loadMessages() {
     setLoading(true);
+    setMessage("");
 
     const {
       data: { user },
@@ -82,7 +84,7 @@ export default function TenantMessagesPage() {
       return;
     }
 
-    const { data: conversationRows, error: conversationError } = await supabase
+    let conversationQuery = supabase
       .from("conversations")
       .select(
         `
@@ -95,9 +97,15 @@ export default function TenantMessagesPage() {
         )
       `
       )
-      .eq("tenant_id", user.id)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
+
+    if (profile?.role !== "admin") {
+      conversationQuery = conversationQuery.eq("tenant_id", user.id);
+    }
+
+    const { data: conversationRows, error: conversationError } =
+      await conversationQuery;
 
     if (conversationError) {
       setMessage(conversationError.message);
@@ -106,28 +114,40 @@ export default function TenantMessagesPage() {
       return;
     }
 
-    const { data: unreadRows, error: unreadError } = await supabase
-      .from("messages")
-      .select("conversation_id")
-      .eq("recipient_id", user.id)
-      .eq("is_read", false);
+    const loadedConversations =
+      (conversationRows || []) as unknown as Conversation[];
 
-    if (unreadError) {
-      setMessage(unreadError.message);
-      setAllowed(false);
-      setLoading(false);
-      return;
-    }
-
-    const unreadIds = Array.from(
-      new Set(
-        ((unreadRows || []) as MessageRow[]).map(
-          (row) => row.conversation_id
-        )
-      )
+    const visibleConversationIds = loadedConversations.map(
+      (conversation) => conversation.id
     );
 
-    setConversations((conversationRows || []) as Conversation[]);
+    let unreadIds: string[] = [];
+
+    if (visibleConversationIds.length > 0) {
+      const { data: unreadRows, error: unreadError } = await supabase
+        .from("messages")
+        .select("conversation_id")
+        .eq("recipient_id", user.id)
+        .eq("is_read", false)
+        .in("conversation_id", visibleConversationIds);
+
+      if (unreadError) {
+        setMessage(unreadError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      unreadIds = Array.from(
+        new Set(
+          ((unreadRows || []) as MessageRow[]).map(
+            (row) => row.conversation_id
+          )
+        )
+      );
+    }
+
+    setConversations(loadedConversations);
     setUnreadConversationIds(unreadIds);
     setAllowed(true);
     setLoading(false);
@@ -135,9 +155,11 @@ export default function TenantMessagesPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading messages...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading messages...
+          </h1>
         </div>
       </main>
     );
@@ -145,7 +167,7 @@ export default function TenantMessagesPage() {
 
   if (!allowed) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
           <h1 className="text-3xl font-black">Messages unavailable</h1>
 
@@ -164,7 +186,7 @@ export default function TenantMessagesPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/tenant"
           className="text-sm font-bold text-slate-600"
@@ -172,24 +194,30 @@ export default function TenantMessagesPage() {
           ← Back to Tenant Dashboard
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="border-b border-slate-200 pb-6">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
               Keylo Messages
             </p>
 
-            <h1 className="mt-3 text-5xl font-black tracking-tight">
+            <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
               Tenant Messages
             </h1>
 
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
               View conversations with landlords about your applications and
               rentals.
             </p>
           </div>
 
+          {message && (
+            <div className="mt-6 rounded-2xl bg-red-50 px-5 py-4 font-bold text-red-700 ring-1 ring-red-200">
+              {message}
+            </div>
+          )}
+
           {conversations.length > 0 ? (
-            <div className="mt-8 divide-y divide-slate-200 rounded-3xl border border-slate-200">
+            <div className="mt-8 divide-y divide-slate-200 overflow-hidden rounded-3xl border border-slate-200">
               {conversations.map((conversation) => {
                 const property = getProperty(conversation);
                 const hasUnread = unreadConversationIds.includes(
@@ -214,6 +242,12 @@ export default function TenantMessagesPage() {
                           {hasUnread && (
                             <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">
                               New
+                            </span>
+                          )}
+
+                          {conversation.landlord_company_id && (
+                            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                              Company
                             </span>
                           )}
                         </div>

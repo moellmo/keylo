@@ -343,62 +343,75 @@ if (!isAdmin && !isListingOwner && !isCompanyReviewer) {
   }
 
   async function startConversation() {
-    if (!application) return;
+  if (!application) return;
 
-    const property = getProperty(application);
+  const property = getProperty(application);
 
-    if (!property?.landlord_id) {
-      setMessage("Could not find the landlord for this application.");
-      return;
-    }
-
-    setStartingConversation(true);
-    setMessage("");
-    setSuccessMessage("");
-
-    const { data: existingConversation, error: existingError } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("application_id", application.id)
-      .eq("tenant_id", application.tenant_id)
-      .eq("landlord_id", property.landlord_id)
-      .maybeSingle();
-
-    if (existingError) {
-      setMessage(existingError.message);
-      setStartingConversation(false);
-      return;
-    }
-
-    if (existingConversation?.id) {
-      window.location.href = `/dashboard/messages/${existingConversation.id}`;
-      return;
-    }
-
-    const { data: newConversation, error } = await supabase
-      .from("conversations")
-      .insert({
-        application_id: application.id,
-        property_id: application.property_id,
-        tenant_id: application.tenant_id,
-        landlord_id: property.landlord_id,
-        subject: property.title
-          ? `Application for ${property.title}`
-          : "Rental application conversation",
-        last_message: null,
-        last_message_at: null,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      setMessage(error.message);
-      setStartingConversation(false);
-      return;
-    }
-
-    window.location.href = `/dashboard/messages/${newConversation.id}`;
+  if (!property?.landlord_id) {
+    setMessage("Could not find the landlord for this application.");
+    return;
   }
+
+  setStartingConversation(true);
+  setMessage("");
+  setSuccessMessage("");
+
+  const conversationCompanyId =
+    application.landlord_company_id || property.landlord_company_id || null;
+
+  let existingConversationQuery = supabase
+    .from("conversations")
+    .select("id")
+    .eq("application_id", application.id)
+    .eq("tenant_id", application.tenant_id)
+    .eq("landlord_id", property.landlord_id);
+
+  if (conversationCompanyId) {
+    existingConversationQuery = existingConversationQuery.eq(
+      "landlord_company_id",
+      conversationCompanyId
+    );
+  }
+
+  const { data: existingConversation, error: existingError } =
+    await existingConversationQuery.maybeSingle();
+
+  if (existingError) {
+    setMessage(existingError.message);
+    setStartingConversation(false);
+    return;
+  }
+
+  if (existingConversation?.id) {
+    window.location.href = `/dashboard/messages/${existingConversation.id}`;
+    return;
+  }
+
+  const { data: newConversation, error } = await supabase
+    .from("conversations")
+    .insert({
+      application_id: application.id,
+      property_id: application.property_id,
+      tenant_id: application.tenant_id,
+      landlord_id: property.landlord_id,
+      landlord_company_id: conversationCompanyId,
+      subject: property.title
+        ? `Application for ${property.title}`
+        : "Rental application conversation",
+      last_message: null,
+      last_message_at: null,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    setMessage(error.message);
+    setStartingConversation(false);
+    return;
+  }
+
+  window.location.href = `/dashboard/messages/${newConversation.id}`;
+}
 
   async function requestScreening() {
     if (!application) return;
