@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import LogoutButton from "@/components/LogoutButton";
 import RemoveSavedListingButton from "./RemoveSavedListingButton";
 
 type RentalProperty = {
@@ -382,7 +381,6 @@ export default function TenantDashboardPage() {
               Profile
             </Link>
 
-            <LogoutButton />
           </div>
         </div>
 

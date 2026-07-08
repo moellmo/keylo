@@ -57,26 +57,26 @@ export default function Header() {
     loadUser();
 
     const {
-  data: { subscription },
-} = supabase.auth.onAuthStateChange(() => {
-  loadUser();
-});
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      loadUser();
+    });
 
-function refreshUnreadMessages() {
-  loadUser();
-}
+    function refreshUnreadMessages() {
+      loadUser();
+    }
 
-window.addEventListener("keylo-messages-read", refreshUnreadMessages);
+    window.addEventListener("keylo-messages-read", refreshUnreadMessages);
 
-const interval = window.setInterval(() => {
-  loadUser();
-}, 30000);
+    const interval = window.setInterval(() => {
+      loadUser();
+    }, 30000);
 
-return () => {
-  subscription.unsubscribe();
-  window.removeEventListener("keylo-messages-read", refreshUnreadMessages);
-  window.clearInterval(interval);
-};
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("keylo-messages-read", refreshUnreadMessages);
+      window.clearInterval(interval);
+    };
   }, []);
 
   function dashboardHref() {
@@ -106,34 +106,45 @@ return () => {
   const showMessages = role === "tenant" || role === "landlord";
 
   return (
-    <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-6 py-5">
-        <Link href="/" className="text-3xl font-black tracking-tight">
-          Keylo
+    <header className="sticky top-0 z-50 border-b border-[#ded6c8] bg-[#f7f1e7]/95 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-6 py-4">
+        <Link href="/" className="group flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#07101f] text-lg font-black text-[#f5c76a] shadow-sm">
+            K
+          </div>
+
+          <div className="leading-none">
+            <div className="text-2xl font-black tracking-[-0.04em] text-[#07101f]">
+              Keylo
+            </div>
+            <div className="mt-1 hidden text-[10px] font-black uppercase tracking-[0.22em] text-[#7b6f5f] sm:block">
+              Rent smarter
+            </div>
+          </div>
         </Link>
 
-        <nav className="hidden items-center gap-8 text-sm font-semibold text-slate-700 md:flex">
-          <Link href="/listings" className="hover:text-slate-950">
+        <nav className="hidden items-center gap-8 text-sm font-black text-[#23314a] md:flex">
+          <Link href="/listings" className="transition hover:text-[#07101f]">
             Browse Rentals
           </Link>
 
-          <Link href="/landlords" className="hover:text-slate-950">
+          <Link href="/landlords" className="transition hover:text-[#07101f]">
             For Landlords
           </Link>
 
-          <Link href="/tenants" className="hover:text-slate-950">
+          <Link href="/tenants" className="transition hover:text-[#07101f]">
             For Tenants
           </Link>
         </nav>
 
         <div className="flex items-center gap-3">
           {loading ? (
-            <div className="h-11 w-28 rounded-full bg-slate-100" />
+            <div className="h-11 w-28 animate-pulse rounded-full bg-white/70" />
           ) : loggedIn ? (
             <>
               <Link
                 href={dashboardHref()}
-                className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                className="rounded-full bg-[#07101f] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 {dashboardLabel()}
               </Link>
@@ -141,7 +152,7 @@ return () => {
               {role === "landlord" && (
                 <Link
                   href="/dashboard/landlord/properties/new"
-                  className="hidden rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950 sm:inline-flex"
+                  className="hidden rounded-full border border-[#d6ccbc] bg-white px-5 py-3 text-sm font-black text-[#07101f] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:inline-flex"
                 >
                   Post Listing
                 </Link>
@@ -150,7 +161,7 @@ return () => {
               {showMessages && (
                 <Link
                   href={messagesHref()}
-                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-white text-lg font-black text-slate-950"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#d6ccbc] bg-white text-lg font-black text-[#07101f] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   aria-label="Messages"
                   title="Messages"
                 >
@@ -172,14 +183,14 @@ return () => {
             <>
               <Link
                 href="/auth/login"
-                className="hidden rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950 sm:inline-flex"
+                className="hidden rounded-full border border-[#d6ccbc] bg-white px-5 py-3 text-sm font-black text-[#07101f] shadow-sm sm:inline-flex"
               >
                 Login
               </Link>
 
               <Link
                 href="/auth/signup"
-                className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                className="rounded-full bg-[#07101f] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 Get Started
               </Link>

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import LogoutButton from "@/components/LogoutButton";
 import ArchiveListingButton from "./ArchiveListingButton";
 import ResubmitListingButton from "./ResubmitListingButton";
 
@@ -359,7 +358,6 @@ export default function LandlordDashboardPage() {
               Lease Builder
             </Link>
 
-            <LogoutButton />
           </div>
         </div>
 
