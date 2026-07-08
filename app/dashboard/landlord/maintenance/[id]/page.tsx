@@ -6,6 +6,15 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { createNotification } from "@/lib/createNotification";
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | "";
+
 type LeaseForMaintenance = {
   id: string;
   property_address: string | null;
@@ -63,7 +72,7 @@ type MaintenanceUpdate = {
 
 type CompanyMembership = {
   company_id: string;
-  role: "owner" | "admin" | "manager" | "maintenance" | "accounting" | "viewer";
+  role: CompanyRole;
 };
 
 type PhotoWithUrl = MaintenancePhoto & {
@@ -78,12 +87,22 @@ function getLease(request: MaintenanceRequest) {
   return request.leases;
 }
 
-function canManageMaintenance(role: string) {
+function canManageMaintenance(role: CompanyRole) {
   return (
     role === "owner" ||
     role === "admin" ||
     role === "manager" ||
     role === "maintenance"
+  );
+}
+
+function canViewMaintenance(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "maintenance" ||
+    role === "viewer"
   );
 }
 
@@ -120,6 +139,7 @@ export default function LandlordMaintenanceDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
+  const [canManage, setCanManage] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("error");
   const [request, setRequest] = useState<MaintenanceRequest | null>(null);
@@ -128,7 +148,7 @@ export default function LandlordMaintenanceDetailPage() {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [companyRole, setCompanyRole] = useState("");
+  const [companyRole, setCompanyRole] = useState<CompanyRole>("");
 
   useEffect(() => {
     loadRequest();
@@ -148,6 +168,8 @@ export default function LandlordMaintenanceDetailPage() {
   async function loadRequest() {
     setLoading(true);
     setMessage("");
+    setAllowed(false);
+    setCanManage(false);
 
     const {
       data: { user },
@@ -155,7 +177,6 @@ export default function LandlordMaintenanceDetailPage() {
 
     if (!user) {
       showError("Please log in as a landlord.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -168,7 +189,6 @@ export default function LandlordMaintenanceDetailPage() {
 
     if (profile?.role !== "landlord" && profile?.role !== "admin") {
       showError("Only landlords can view this request.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -192,7 +212,6 @@ export default function LandlordMaintenanceDetailPage() {
 
     if (requestError || !requestRow) {
       showError(requestError?.message || "Maintenance request not found.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -202,8 +221,9 @@ export default function LandlordMaintenanceDetailPage() {
     const isAdmin = profile?.role === "admin";
     const isOriginalLandlord = typedRequest.landlord_id === user.id;
 
-    let isCompanyMaintenanceUser = false;
-    let currentCompanyRole = "";
+    let userCanView = isAdmin || isOriginalLandlord;
+    let userCanManage = isAdmin || isOriginalLandlord;
+    let currentCompanyRole: CompanyRole = "";
 
     if (!isAdmin && !isOriginalLandlord && typedRequest.landlord_company_id) {
       const { data: membership, error: membershipError } = await supabase
@@ -216,7 +236,6 @@ export default function LandlordMaintenanceDetailPage() {
 
       if (membershipError) {
         showError(membershipError.message);
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -224,13 +243,14 @@ export default function LandlordMaintenanceDetailPage() {
       const companyMembership = membership as CompanyMembership | null;
 
       currentCompanyRole = companyMembership?.role || "";
-      isCompanyMaintenanceUser =
+      userCanView =
+        !!companyMembership && canViewMaintenance(companyMembership.role);
+      userCanManage =
         !!companyMembership && canManageMaintenance(companyMembership.role);
     }
 
-    if (!isAdmin && !isOriginalLandlord && !isCompanyMaintenanceUser) {
+    if (!userCanView) {
       showError("You do not have permission to view this request.");
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -238,6 +258,7 @@ export default function LandlordMaintenanceDetailPage() {
     setRequest(typedRequest);
     setNote(typedRequest.landlord_notes || "");
     setCompanyRole(currentCompanyRole);
+    setCanManage(userCanManage);
 
     const { data: photoRows, error: photosError } = await supabase
       .from("maintenance_request_photos")
@@ -247,7 +268,6 @@ export default function LandlordMaintenanceDetailPage() {
 
     if (photosError) {
       showError(photosError.message);
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -275,7 +295,6 @@ export default function LandlordMaintenanceDetailPage() {
 
     if (updatesError) {
       showError(updatesError.message);
-      setAllowed(false);
       setLoading(false);
       return;
     }
@@ -297,6 +316,11 @@ export default function LandlordMaintenanceDetailPage() {
 
   async function uploadPhotos() {
     if (!request) return;
+
+    if (!canManage) {
+      showError("Your company role can only view this request.");
+      return;
+    }
 
     if (selectedFiles.length === 0) {
       showError("Please choose at least one photo.");
@@ -395,6 +419,11 @@ export default function LandlordMaintenanceDetailPage() {
   async function saveLandlordNote() {
     if (!request) return;
 
+    if (!canManage) {
+      showError("Your company role can only view this request.");
+      return;
+    }
+
     if (!note.trim()) {
       showError("Please enter a note.");
       return;
@@ -459,6 +488,11 @@ export default function LandlordMaintenanceDetailPage() {
 
   async function updateStatus(newStatus: MaintenanceRequest["status"]) {
     if (!request) return;
+
+    if (!canManage) {
+      showError("Your company role can only view this request.");
+      return;
+    }
 
     const confirmed = window.confirm(
       `Update this request to ${formatStatus(newStatus)}?`
@@ -613,9 +647,17 @@ export default function LandlordMaintenanceDetailPage() {
                 )}
 
                 {companyRole && (
-                  <p className="mt-3 w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
-                    Company role: {companyRole}
-                  </p>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <span className="w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black capitalize text-blue-700">
+                      Company role: {companyRole}
+                    </span>
+
+                    {!canManage && (
+                      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+                        Read-only
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -705,64 +747,68 @@ export default function LandlordMaintenanceDetailPage() {
               )}
             </section>
 
-            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
-              <h2 className="text-2xl font-black">Add Photos</h2>
+            {canManage && (
+              <>
+                <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
+                  <h2 className="text-2xl font-black">Add Photos</h2>
 
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Upload up to 6 photos at a time.
-              </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Upload up to 6 photos at a time.
+                  </p>
 
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(event) => handleFiles(event.target.files)}
-                className="mt-4 block w-full text-sm font-bold text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-slate-950 file:px-5 file:py-3 file:font-black file:text-white"
-              />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => handleFiles(event.target.files)}
+                    className="mt-4 block w-full text-sm font-bold text-slate-700 file:mr-4 file:rounded-full file:border-0 file:bg-slate-950 file:px-5 file:py-3 file:font-black file:text-white"
+                  />
 
-              {selectedFiles.length > 0 && (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {selectedFiles.map((file) => (
-                    <div
-                      key={`${file.name}-${file.size}`}
-                      className="rounded-2xl bg-white p-4 text-sm font-bold text-slate-600"
-                    >
-                      {file.name}
+                  {selectedFiles.length > 0 && (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {selectedFiles.map((file) => (
+                        <div
+                          key={`${file.name}-${file.size}`}
+                          className="rounded-2xl bg-white p-4 text-sm font-bold text-slate-600"
+                        >
+                          {file.name}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              <button
-                type="button"
-                onClick={uploadPhotos}
-                disabled={saving || selectedFiles.length === 0}
-                className="mt-5 rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-              >
-                {saving ? "Uploading..." : "Upload Photos"}
-              </button>
-            </section>
+                  <button
+                    type="button"
+                    onClick={uploadPhotos}
+                    disabled={saving || selectedFiles.length === 0}
+                    className="mt-5 rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+                  >
+                    {saving ? "Uploading..." : "Upload Photos"}
+                  </button>
+                </section>
 
-            <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
-              <h2 className="text-2xl font-black">Landlord Note</h2>
+                <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-5 sm:p-6">
+                  <h2 className="text-2xl font-black">Landlord Note</h2>
 
-              <textarea
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                rows={5}
-                placeholder="Add an update for the tenant..."
-                className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 leading-7 outline-none focus:border-slate-500"
-              />
+                  <textarea
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    rows={5}
+                    placeholder="Add an update for the tenant..."
+                    className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 leading-7 outline-none focus:border-slate-500"
+                  />
 
-              <button
-                type="button"
-                onClick={saveLandlordNote}
-                disabled={saving}
-                className="mt-5 rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-              >
-                {saving ? "Saving..." : "Save Note"}
-              </button>
-            </section>
+                  <button
+                    type="button"
+                    onClick={saveLandlordNote}
+                    disabled={saving}
+                    className="mt-5 rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+                  >
+                    {saving ? "Saving..." : "Save Note"}
+                  </button>
+                </section>
+              </>
+            )}
           </section>
 
           <aside className="grid gap-8 self-start">
@@ -777,51 +823,58 @@ export default function LandlordMaintenanceDetailPage() {
                 Priority: {formatPriority(request.priority)}
               </p>
 
-              <div className="mt-6 grid gap-3">
-                {isActive && request.status !== "in_progress" && (
-                  <button
-                    type="button"
-                    onClick={() => updateStatus("in_progress")}
-                    disabled={saving}
-                    className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-                  >
-                    Mark In Progress
-                  </button>
-                )}
+              {canManage ? (
+                <div className="mt-6 grid gap-3">
+                  {isActive && request.status !== "in_progress" && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("in_progress")}
+                      disabled={saving}
+                      className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+                    >
+                      Mark In Progress
+                    </button>
+                  )}
 
-                {isActive && (
-                  <button
-                    type="button"
-                    onClick={() => updateStatus("resolved")}
-                    disabled={saving}
-                    className="rounded-full bg-green-700 px-6 py-3 font-black text-white disabled:opacity-60"
-                  >
-                    Mark Resolved
-                  </button>
-                )}
+                  {isActive && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("resolved")}
+                      disabled={saving}
+                      className="rounded-full bg-green-700 px-6 py-3 font-black text-white disabled:opacity-60"
+                    >
+                      Mark Resolved
+                    </button>
+                  )}
 
-                {request.status === "resolved" && (
-                  <button
-                    type="button"
-                    onClick={() => updateStatus("closed")}
-                    disabled={saving}
-                    className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
-                  >
-                    Close Request
-                  </button>
-                )}
+                  {request.status === "resolved" && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("closed")}
+                      disabled={saving}
+                      className="rounded-full bg-slate-950 px-6 py-3 font-black text-white disabled:opacity-60"
+                    >
+                      Close Request
+                    </button>
+                  )}
 
-                {isActive && (
-                  <button
-                    type="button"
-                    onClick={() => updateStatus("cancelled")}
-                    disabled={saving}
-                    className="rounded-full border border-red-200 bg-red-50 px-6 py-3 font-black text-red-700 disabled:opacity-60"
-                  >
-                    Cancel Request
-                  </button>
-                )}
-              </div>
+                  {isActive && (
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("cancelled")}
+                      disabled={saving}
+                      className="rounded-full border border-red-200 bg-red-50 px-6 py-3 font-black text-red-700 disabled:opacity-60"
+                    >
+                      Cancel Request
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-6 rounded-2xl bg-[#f7f4ef] p-4 font-bold text-slate-600">
+                  Your role can view this request but cannot update status, add
+                  notes, or upload photos.
+                </div>
+              )}
             </div>
 
             <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">

@@ -5,6 +5,15 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+type CompanyRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "maintenance"
+  | "accounting"
+  | "viewer"
+  | "";
+
 type PropertyPhoto = {
   photo_url: string;
   sort_order: number | null;
@@ -13,6 +22,7 @@ type PropertyPhoto = {
 type Property = {
   id: string;
   landlord_id: string | null;
+  landlord_company_id: string | null;
   title: string;
   monthly_rent: number;
   available_date: string | null;
@@ -42,20 +52,63 @@ type Profile = {
   bio: string | null;
 };
 
+type CompanyMembership = {
+  company_id: string;
+  role: CompanyRole;
+  landlord_companies:
+    | {
+        id: string;
+        name: string;
+      }
+    | {
+        id: string;
+        name: string;
+      }[]
+    | null;
+};
+
+function getCompanyFromMembership(membership: CompanyMembership | null) {
+  if (!membership) return null;
+
+  if (Array.isArray(membership.landlord_companies)) {
+    return membership.landlord_companies[0] || null;
+  }
+
+  return membership.landlord_companies;
+}
+
+function canViewListing(role: CompanyRole) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager" ||
+    role === "viewer"
+  );
+}
+
+function canManageListing(role: CompanyRole) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
 export default function LandlordListingPreviewPage() {
   const params = useParams();
   const propertyId = params.id as string;
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
   const [message, setMessage] = useState("");
   const [property, setProperty] = useState<Property | null>(null);
   const [landlord, setLandlord] = useState<Profile | null>(null);
+  const [companyName, setCompanyName] = useState("");
+  const [companyRole, setCompanyRole] = useState<CompanyRole>("");
 
   useEffect(() => {
     async function loadPreview() {
       setLoading(true);
       setMessage("");
+      setAllowed(false);
+      setCanEdit(false);
 
       const {
         data: { user },
@@ -63,7 +116,6 @@ export default function LandlordListingPreviewPage() {
 
       if (!user) {
         setMessage("Please log in as a landlord to preview this listing.");
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -73,6 +125,15 @@ export default function LandlordListingPreviewPage() {
         .select("role")
         .eq("id", user.id)
         .single();
+
+      if (
+        currentProfile?.role !== "landlord" &&
+        currentProfile?.role !== "admin"
+      ) {
+        setMessage("Only landlord accounts can preview this listing.");
+        setLoading(false);
+        return;
+      }
 
       const { data: listing, error } = await supabase
         .from("properties")
@@ -90,7 +151,6 @@ export default function LandlordListingPreviewPage() {
 
       if (error || !listing) {
         setMessage("Listing not found.");
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -100,9 +160,53 @@ export default function LandlordListingPreviewPage() {
       const isAdmin = currentProfile?.role === "admin";
       const isListingOwner = propertyData.landlord_id === user.id;
 
-      if (!isAdmin && !isListingOwner) {
+      let isCompanyViewer = false;
+      let isCompanyManager = false;
+
+      if (!isAdmin && !isListingOwner && propertyData.landlord_company_id) {
+        const { data: membershipRows, error: membershipError } = await supabase
+          .from("landlord_company_members")
+          .select(
+            `
+            company_id,
+            role,
+            landlord_companies (
+              id,
+              name
+            )
+          `
+          )
+          .eq("company_id", propertyData.landlord_company_id)
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .limit(1);
+
+        if (membershipError) {
+          setMessage(membershipError.message);
+          setLoading(false);
+          return;
+        }
+
+        const membership =
+          ((membershipRows || [])[0] as unknown as
+            | CompanyMembership
+            | undefined) || null;
+
+        const company = getCompanyFromMembership(membership);
+
+        if (membership) {
+          setCompanyRole(membership.role);
+          isCompanyViewer = canViewListing(membership.role);
+          isCompanyManager = canManageListing(membership.role);
+        }
+
+        if (company) {
+          setCompanyName(company.name);
+        }
+      }
+
+      if (!isAdmin && !isListingOwner && !isCompanyViewer) {
         setMessage("You do not have permission to preview this listing.");
-        setAllowed(false);
         setLoading(false);
         return;
       }
@@ -119,6 +223,7 @@ export default function LandlordListingPreviewPage() {
 
       setProperty(propertyData);
       setAllowed(true);
+      setCanEdit(isAdmin || isListingOwner || isCompanyManager);
       setLoading(false);
     }
 
@@ -160,10 +265,10 @@ export default function LandlordListingPreviewPage() {
           <p className="mt-3 text-slate-600">{message}</p>
 
           <Link
-            href="/dashboard/landlord"
+            href="/dashboard/landlord/properties"
             className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
           >
-            Back to Dashboard
+            Back to Listings
           </Link>
         </div>
       </main>
@@ -180,10 +285,10 @@ export default function LandlordListingPreviewPage() {
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-7xl px-6 py-10">
         <Link
-          href="/dashboard/landlord"
+          href="/dashboard/landlord/properties"
           className="text-sm font-bold text-slate-600"
         >
-          ← Back to Landlord Dashboard
+          ← Back to Listings
         </Link>
 
         <div className="mt-6 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
@@ -207,6 +312,24 @@ export default function LandlordListingPreviewPage() {
                 <span className="text-sm font-bold text-slate-500">
                   Private preview only
                 </span>
+
+                {property.landlord_company_id && (
+                  <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    Company Listing
+                  </span>
+                )}
+
+                {companyName && (
+                  <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    {companyName}
+                  </span>
+                )}
+
+                {companyRole && (
+                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
+                    Role: {companyRole}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -220,12 +343,14 @@ export default function LandlordListingPreviewPage() {
                 </Link>
               )}
 
-              <Link
-                href={`/dashboard/landlord/properties/${property.id}/edit`}
-                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-              >
-                Edit Listing
-              </Link>
+              {canEdit && (
+                <Link
+                  href={`/dashboard/landlord/properties/${property.id}/edit`}
+                  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+                >
+                  Edit Listing
+                </Link>
+              )}
             </div>
           </div>
 
@@ -369,18 +494,20 @@ export default function LandlordListingPreviewPage() {
                 </Link>
               )}
 
-              <Link
-                href={`/dashboard/landlord/properties/${property.id}/edit`}
-                className="block rounded-full border border-slate-300 bg-white px-6 py-4 text-center font-black"
-              >
-                Edit Listing
-              </Link>
+              {canEdit && (
+                <Link
+                  href={`/dashboard/landlord/properties/${property.id}/edit`}
+                  className="block rounded-full border border-slate-300 bg-white px-6 py-4 text-center font-black"
+                >
+                  Edit Listing
+                </Link>
+              )}
 
               <Link
-                href="/dashboard/landlord"
+                href="/dashboard/landlord/properties"
                 className="block rounded-full border border-slate-300 bg-white px-6 py-4 text-center font-black"
               >
-                Back to Dashboard
+                Back to Listings
               </Link>
             </div>
 
