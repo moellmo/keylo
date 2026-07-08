@@ -94,6 +94,7 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
   const [petPolicy, setPetPolicy] = useState("");
   const [availableBy, setAvailableBy] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const filteredListings = useMemo(() => {
     const searchText = locationSearch.trim().toLowerCase();
@@ -199,8 +200,30 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
 
   return (
     <>
-      <div className="rounded-[2rem] bg-white p-4 shadow-sm ring-1 ring-[#ded6c8] sm:p-5">
-        <div className="grid gap-3 lg:grid-cols-12">
+<div className="rounded-[2rem] bg-white p-4 shadow-sm ring-1 ring-[#ded6c8] sm:p-5">
+  <div className="mb-4 flex items-center justify-between gap-3 lg:hidden">
+    <div>
+      <p className="text-sm font-black text-[#07101f]">
+        Showing {filteredListings.length} of {listings.length}
+      </p>
+      <p className="mt-1 text-xs font-bold text-[#6f7b91]">
+        Search and filter rentals
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => setMobileFiltersOpen((current) => !current)}
+      className="rounded-full bg-[#07101f] px-5 py-3 text-sm font-black text-white"
+    >
+      {mobileFiltersOpen ? "Hide Filters" : "Filters"}
+    </button>
+  </div>
+        <div
+  className={`grid gap-3 lg:grid lg:grid-cols-12 ${
+    mobileFiltersOpen ? "grid" : "hidden"
+  }`}
+>
           <input
             value={locationSearch}
             onChange={(event) => setLocationSearch(event.target.value)}
@@ -271,7 +294,11 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
           </button>
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div
+  className={`mt-3 gap-3 md:grid-cols-3 lg:grid ${
+    mobileFiltersOpen ? "grid" : "hidden"
+  }`}
+>
           <select
             value={petPolicy}
             onChange={(event) => setPetPolicy(event.target.value)}
