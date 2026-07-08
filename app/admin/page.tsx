@@ -77,6 +77,7 @@ type MaintenanceRequest = {
 
 type ScreeningRequest = {
   id: string;
+  application_id: string;
   status:
     | "requested"
     | "tenant_approved"
@@ -88,42 +89,6 @@ type ScreeningRequest = {
   screening_type: string;
   provider: string | null;
   requested_at: string;
-  applications:
-    | {
-        first_name: string;
-        last_name: string;
-        email: string;
-        properties:
-          | {
-              title: string;
-              city: string;
-              state: string;
-            }
-          | {
-              title: string;
-              city: string;
-              state: string;
-            }[]
-          | null;
-      }
-    | {
-        first_name: string;
-        last_name: string;
-        email: string;
-        properties:
-          | {
-              title: string;
-              city: string;
-              state: string;
-            }
-          | {
-              title: string;
-              city: string;
-              state: string;
-            }[]
-          | null;
-      }[]
-    | null;
 };
 
 type LandlordVerification = {
@@ -141,26 +106,6 @@ function formatMoneyFromCents(cents: number) {
 }
 
 function getApplicationProperty(application: Application) {
-  if (Array.isArray(application.properties)) {
-    return application.properties[0] || null;
-  }
-
-  return application.properties;
-}
-
-function getScreeningApplication(screening: ScreeningRequest) {
-  if (Array.isArray(screening.applications)) {
-    return screening.applications[0] || null;
-  }
-
-  return screening.applications;
-}
-
-function getScreeningApplicationProperty(screening: ScreeningRequest) {
-  const application = getScreeningApplication(screening);
-
-  if (!application?.properties) return null;
-
   if (Array.isArray(application.properties)) {
     return application.properties[0] || null;
   }
@@ -364,20 +309,11 @@ export default function AdminPage() {
       .select(
         `
         id,
+        application_id,
         status,
         screening_type,
         provider,
-        requested_at,
-        applications (
-          first_name,
-          last_name,
-          email,
-          properties (
-            title,
-            city,
-            state
-          )
-        )
+        requested_at
       `
       )
       .order("requested_at", { ascending: false });
@@ -405,12 +341,11 @@ export default function AdminPage() {
     setLeases((leaseRows || []) as Lease[]);
     setRentCharges((chargeRows || []) as RentCharge[]);
     setMaintenanceRequests((maintenanceRows || []) as MaintenanceRequest[]);
-    setScreeningRequests(
-      (screeningRows || []) as unknown as ScreeningRequest[]
-    );
+    setScreeningRequests((screeningRows || []) as ScreeningRequest[]);
     setLandlordVerifications(
       (verificationRows || []) as LandlordVerification[]
     );
+
     setLoading(false);
   }
 
@@ -565,16 +500,11 @@ export default function AdminPage() {
         </section>
 
         <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Admin Attention
-              </p>
-              <h2 className="mt-2 text-3xl font-black">
-                What needs review
-              </h2>
-            </div>
-          </div>
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+            Admin Attention
+          </p>
+
+          <h2 className="mt-2 text-3xl font-black">What needs review</h2>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {pendingListings.length > 0 && (
@@ -711,8 +641,13 @@ export default function AdminPage() {
           {screeningRequests.length > 0 ? (
             <div className="divide-y divide-slate-200">
               {screeningRequests.slice(0, 10).map((screening) => {
-                const application = getScreeningApplication(screening);
-                const property = getScreeningApplicationProperty(screening);
+                const matchingApplication = applications.find(
+                  (application) => application.id === screening.application_id
+                );
+
+                const property = matchingApplication
+                  ? getApplicationProperty(matchingApplication)
+                  : null;
 
                 return (
                   <div
@@ -722,8 +657,8 @@ export default function AdminPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
                         <h3 className="text-xl font-black">
-                          {application
-                            ? `${application.first_name} ${application.last_name}`
+                          {matchingApplication
+                            ? `${matchingApplication.first_name} ${matchingApplication.last_name}`
                             : "Applicant"}
                         </h3>
 
@@ -737,7 +672,7 @@ export default function AdminPage() {
                       </div>
 
                       <p className="mt-2 font-bold text-slate-500">
-                        {application?.email || "No email"}
+                        {matchingApplication?.email || "No email"}
                       </p>
 
                       <p className="mt-2 text-sm font-bold text-slate-500">
