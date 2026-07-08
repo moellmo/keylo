@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
@@ -45,13 +45,23 @@ export default function Header() {
 
       setRole(userRole);
 
-      const { count } = await supabase
-        .from("messages")
-        .select("id", { count: "exact", head: true })
-        .eq("recipient_id", user.id)
-        .eq("is_read", false);
+      if (userRole === "admin") {
+        const { count } = await supabase
+          .from("contact_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "new");
 
-      setUnreadMessages(count || 0);
+        setUnreadMessages(count || 0);
+      } else {
+        const { count } = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("recipient_id", user.id)
+          .eq("is_read", false);
+
+        setUnreadMessages(count || 0);
+      }
+
       setLoading(false);
     }
 
@@ -101,14 +111,20 @@ export default function Header() {
   }
 
   function messagesHref() {
+    if (role === "admin") return "/admin/contact-messages";
     if (role === "landlord") return "/dashboard/landlord/messages";
     if (role === "tenant") return "/dashboard/tenant/messages";
-    if (role === "admin") return "/admin";
 
     return "/dashboard";
   }
 
-  const showMessages = role === "tenant" || role === "landlord";
+  function messagesLabel() {
+    if (role === "admin") return "Contact Messages";
+    return "Messages";
+  }
+
+  const showMessages =
+    role === "tenant" || role === "landlord" || role === "admin";
 
   return (
     <>
@@ -168,8 +184,8 @@ export default function Header() {
                   <Link
                     href={messagesHref()}
                     className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#d6ccbc] bg-white text-lg font-black text-[#07101f] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                    aria-label="Messages"
-                    title="Messages"
+                    aria-label={messagesLabel()}
+                    title={messagesLabel()}
                   >
                     ✉
 
@@ -317,6 +333,40 @@ export default function Header() {
                     {dashboardLabel()}
                   </MobileMenuLink>
 
+                  {role === "admin" && (
+                    <>
+                      <MobileMenuLink
+                        href="/admin/contact-messages"
+                        onClick={closeMenu}
+                      >
+                        <span className="flex w-full items-center justify-between gap-3">
+                          <span>Contact Messages</span>
+
+                          {unreadMessages > 0 && (
+                            <span className="rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
+                              {unreadMessages > 9 ? "9+" : unreadMessages}
+                            </span>
+                          )}
+                        </span>
+                      </MobileMenuLink>
+
+                      <MobileMenuLink href="/admin/listings" onClick={closeMenu}>
+                        Listings
+                      </MobileMenuLink>
+
+                      <MobileMenuLink
+                        href="/admin/applications"
+                        onClick={closeMenu}
+                      >
+                        Applications
+                      </MobileMenuLink>
+
+                      <MobileMenuLink href="/admin/users" onClick={closeMenu}>
+                        Users
+                      </MobileMenuLink>
+                    </>
+                  )}
+
                   {role === "landlord" && (
                     <>
                       <MobileMenuLink
@@ -374,7 +424,7 @@ export default function Header() {
                     </>
                   )}
 
-                  {showMessages && (
+                  {(role === "tenant" || role === "landlord") && (
                     <MobileMenuLink href={messagesHref()} onClick={closeMenu}>
                       <span className="flex w-full items-center justify-between gap-3">
                         <span>Messages</span>
@@ -421,7 +471,7 @@ function MobileMenuLink({
 }: {
   href: string;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Link
