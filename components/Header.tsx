@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 
 type Role = "tenant" | "landlord" | "admin" | null;
 
@@ -111,6 +112,8 @@ export default function Header() {
                   Post Listing
                 </Link>
               )}
+
+              <NotificationBell />
 
               <LogoutButton />
             </>

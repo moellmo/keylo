@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
 
 type Property = {
   id: string;
@@ -14,6 +15,7 @@ type Property = {
   bedrooms: string | null;
   bathrooms: string | null;
   status: string;
+  landlord_id: string;
 };
 
 type BasicProfile = {
@@ -118,8 +120,8 @@ export default function ApplyPage() {
       const { data: propertyRow, error: propertyError } = await supabase
         .from("properties")
         .select(
-          "id, title, monthly_rent, city, state, bedrooms, bathrooms, status"
-        )
+  "id, title, monthly_rent, city, state, bedrooms, bathrooms, status, landlord_id"
+)
         .eq("id", propertyId)
         .eq("status", "published")
         .single();
@@ -222,9 +224,11 @@ export default function ApplyPage() {
     setSubmitting(true);
     setMessage("");
 
-    const { error } = await supabase.from("applications").insert({
-      property_id: property.id,
-      tenant_id: userId,
+   const { data: newApplication, error } = await supabase
+  .from("applications")
+  .insert({
+    property_id: property.id,
+    tenant_id: userId,
 
       first_name: tenantProfile.legal_first_name,
       last_name: tenantProfile.legal_last_name,
@@ -265,16 +269,35 @@ export default function ApplyPage() {
       tenant_profile_status: tenantProfile.profile_status || "incomplete",
       tenant_document_count: documentCount,
 
-      status: "submitted",
-    });
+           status: "submitted",
+    })
+    .select("id")
+    .single();
 
     if (error) {
-      setMessage(error.message);
-      setSubmitting(false);
-      return;
-    }
+  setMessage(error.message);
+  setSubmitting(false);
+  return;
+}
 
-    router.push("/dashboard/tenant");
+if (!newApplication?.id) {
+  setMessage("Application was submitted, but the confirmation could not be loaded.");
+  setSubmitting(false);
+  return;
+}
+
+await createNotification({
+  userId: property.landlord_id,
+  title: "New application received",
+  message: `${
+    tenantProfile.legal_first_name || "A tenant"
+  } applied for ${property.title}.`,
+  type: "application_submitted",
+  targetUrl: `/dashboard/landlord/applications/${newApplication.id}`,
+  dedupe: true,
+});
+
+router.push("/dashboard/tenant");
   }
 
   if (loading) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
 
 type Verification = {
   id: string;
@@ -176,6 +177,31 @@ export default function AdminLandlordVerificationsPage() {
       setMessage(error.message);
       setSavingId("");
       return;
+    }
+
+    if (status === "verified") {
+      await createNotification({
+  userId: verification.landlord_id,
+  title: "Landlord verification approved",
+  message:
+    "Your landlord verification was approved. You can now submit listings for review.",
+  type: "landlord_verification_approved",
+  targetUrl: "/dashboard/landlord/verification",
+  dedupe: true,
+});
+    }
+
+    if (status === "rejected") {
+      await createNotification({
+  userId: verification.landlord_id,
+  title: "Landlord verification rejected",
+  message: adminNote
+    ? `Your landlord verification was rejected. Reason: ${adminNote}`
+    : "Your landlord verification was rejected. Please review and resubmit your information.",
+  type: "landlord_verification_rejected",
+  targetUrl: "/dashboard/landlord/verification",
+  dedupe: true,
+});
     }
 
     setSavingId("");

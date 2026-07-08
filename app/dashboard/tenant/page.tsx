@@ -41,6 +41,18 @@ type SavedListing = {
   properties: SavedRentalProperty | SavedRentalProperty[] | null;
 };
 
+type TenantLease = {
+  id: string;
+  lease_status: string;
+  tenant_name: string | null;
+  landlord_name: string | null;
+  property_address: string | null;
+  monthly_rent: number | null;
+  lease_start_date: string | null;
+  lease_end_date: string | null;
+  created_at: string;
+};
+
 function getApplicationProperty(application: TenantApplication) {
   if (Array.isArray(application.properties)) {
     return application.properties[0] || null;
@@ -57,16 +69,29 @@ function getSavedProperty(saved: SavedListing) {
   return saved.properties;
 }
 
+function formatLeaseStatus(status: string) {
+  if (status === "draft") return "Draft";
+  if (status === "sent_to_tenant") return "Ready to Sign";
+  if (status === "tenant_signed") return "Tenant Signed";
+  if (status === "landlord_signed") return "Landlord Signed";
+  if (status === "completed") return "Completed";
+  if (status === "cancelled") return "Cancelled";
+
+  return status;
+}
+
 export default function TenantDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [applications, setApplications] = useState<TenantApplication[]>([]);
   const [savedListings, setSavedListings] = useState<SavedListing[]>([]);
+  const [leases, setLeases] = useState<TenantLease[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     async function loadTenantDashboard() {
       setLoading(true);
+      setErrorMessage("");
 
       const {
         data: { user },
@@ -151,8 +176,33 @@ export default function TenantDashboardPage() {
         return;
       }
 
+      const { data: leaseRows, error: leasesError } = await supabase
+        .from("leases")
+        .select(
+          `
+          id,
+          lease_status,
+          tenant_name,
+          landlord_name,
+          property_address,
+          monthly_rent,
+          lease_start_date,
+          lease_end_date,
+          created_at
+        `
+        )
+        .eq("tenant_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (leasesError) {
+        setErrorMessage(leasesError.message);
+        setLoading(false);
+        return;
+      }
+
       setApplications((applicationRows || []) as unknown as TenantApplication[]);
       setSavedListings((savedRows || []) as unknown as SavedListing[]);
+      setLeases((leaseRows || []) as TenantLease[]);
       setLoading(false);
     }
 
@@ -196,29 +246,19 @@ export default function TenantDashboardPage() {
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <Link href="/" className="text-sm font-bold text-slate-600">
             ← Back to Home
           </Link>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3">
-  <Link
-    href="/dashboard/tenant/documents"
-    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
-  >
-    Documents
-  </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/dashboard/tenant/documents"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+            >
+              Documents
+            </Link>
 
-  <Link
-    href="/dashboard/tenant/profile"
-    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
-  >
-    Edit Profile
-  </Link>
-
-  <LogoutButton />
-</div>
             <Link
               href="/dashboard/tenant/profile"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
@@ -240,7 +280,8 @@ export default function TenantDashboardPage() {
           </h1>
 
           <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-            Track saved rentals, submitted applications, and application status.
+            Track saved rentals, submitted applications, leases, and signing
+            status.
           </p>
 
           {errorMessage && (
@@ -249,7 +290,7 @@ export default function TenantDashboardPage() {
             </div>
           )}
 
-          <div className="mt-8 grid gap-5 md:grid-cols-4">
+          <div className="mt-8 grid gap-5 md:grid-cols-5">
             <div className="rounded-3xl bg-[#f7f4ef] p-6">
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
                 Applications
@@ -262,6 +303,13 @@ export default function TenantDashboardPage() {
                 Saved
               </p>
               <p className="mt-3 text-4xl font-black">{savedListings.length}</p>
+            </div>
+
+            <div className="rounded-3xl bg-[#f7f4ef] p-6">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Leases
+              </p>
+              <p className="mt-3 text-4xl font-black">{leases.length}</p>
             </div>
 
             <div className="rounded-3xl bg-[#f7f4ef] p-6">
@@ -291,6 +339,63 @@ export default function TenantDashboardPage() {
             </div>
           </div>
         </div>
+
+        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-200 p-6">
+            <h2 className="text-2xl font-black">Your Leases</h2>
+          </div>
+
+          {leases.length > 0 ? (
+            <div className="divide-y divide-slate-200">
+              {leases.map((lease) => (
+                <div
+                  key={lease.id}
+                  className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-xl font-black">
+                        {lease.property_address || "Lease Agreement"}
+                      </h3>
+
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                        {formatLeaseStatus(lease.lease_status)}
+                      </span>
+                    </div>
+
+                    <p className="mt-2 font-bold text-slate-500">
+                      {lease.monthly_rent
+                        ? `$${lease.monthly_rent.toLocaleString()}/mo`
+                        : "Rent not provided"}
+                      {lease.lease_start_date && lease.lease_end_date
+                        ? ` · ${lease.lease_start_date} to ${lease.lease_end_date}`
+                        : ""}
+                    </p>
+
+                    <p className="mt-2 text-sm font-bold text-slate-500">
+                      Landlord: {lease.landlord_name || "Not provided"}
+                    </p>
+                  </div>
+
+                  <Link
+                    href={`/dashboard/tenant/leases/${lease.id}`}
+                    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+                  >
+                    View Lease
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 text-center">
+              <h3 className="text-2xl font-black">No leases yet</h3>
+
+              <p className="mt-3 text-slate-600">
+                When a landlord sends you a lease, it will appear here.
+              </p>
+            </div>
+          )}
+        </section>
 
         <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-200 p-6">

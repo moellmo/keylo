@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
 
 const amenityOptions = [
   "Parking",
@@ -21,6 +22,10 @@ type PropertyPhoto = {
   sort_order: number | null;
 };
 
+type AdminProfile = {
+  id: string;
+};
+
 export default function EditListingPage() {
   const params = useParams();
   const router = useRouter();
@@ -31,6 +36,7 @@ export default function EditListingPage() {
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [existingPhotos, setExistingPhotos] = useState<PropertyPhoto[]>([]);
+  const [originalStatus, setOriginalStatus] = useState("draft");
 
   const [form, setForm] = useState({
     title: "",
@@ -81,10 +87,14 @@ export default function EditListingPage() {
         .single();
 
       if (error || !property) {
-        setMessage("Listing not found, or you do not have permission to edit it.");
+        setMessage(
+          "Listing not found, or you do not have permission to edit it."
+        );
         setLoading(false);
         return;
       }
+
+      const propertyStatus = property.status || "draft";
 
       setForm({
         title: property.title || "",
@@ -102,8 +112,10 @@ export default function EditListingPage() {
         description: property.description || "",
         pet_policy: property.pet_policy || "",
         amenities: property.amenities || [],
-        status: property.status || "draft",
+        status: propertyStatus,
       });
+
+      setOriginalStatus(propertyStatus);
 
       const sortedPhotos = [...(property.property_photos || [])].sort(
         (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
@@ -133,6 +145,30 @@ export default function EditListingPage() {
       );
     } else {
       updateField("amenities", [...form.amenities, amenity]);
+    }
+  }
+
+  async function notifyAdminsListingPending() {
+    const { data: admins, error: adminError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "admin");
+
+    if (adminError || !admins || admins.length === 0) {
+      return;
+    }
+
+    for (const admin of admins as AdminProfile[]) {
+      await createNotification({
+        userId: admin.id,
+        title: "New listing pending review",
+        message: `A landlord submitted "${
+          form.title || "a listing"
+        }" for approval.`,
+        type: "admin_listing_pending",
+        targetUrl: `/admin/listings/${propertyId}/preview`,
+        dedupe: true,
+      });
     }
   }
 
@@ -255,6 +291,11 @@ export default function EditListingPage() {
       }
     }
 
+    if (form.status === "pending" && originalStatus !== "pending") {
+      await notifyAdminsListingPending();
+    }
+
+    setOriginalStatus(form.status);
     setSaving(false);
     router.push("/dashboard/landlord");
   }
@@ -272,7 +313,10 @@ export default function EditListingPage() {
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <Link href="/dashboard/landlord" className="text-sm font-bold text-slate-600">
+        <Link
+          href="/dashboard/landlord"
+          className="text-sm font-bold text-slate-600"
+        >
           ← Back to Landlord Dashboard
         </Link>
 
@@ -387,11 +431,11 @@ export default function EditListingPage() {
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
                   >
                     <option value="draft">Draft</option>
-<option value="published">Published</option>
-<option value="paused">Paused</option>
-<option value="archived">Archived</option>
-<option value="pending">Pending Review</option>
-<option value="rejected">Rejected</option>
+                    <option value="published">Published</option>
+                    <option value="paused">Paused</option>
+                    <option value="archived">Archived</option>
+                    <option value="pending">Pending Review</option>
+                    <option value="rejected">Rejected</option>
                   </select>
                 </div>
               </div>
@@ -535,10 +579,12 @@ export default function EditListingPage() {
                         alt={`Property photo ${index + 1}`}
                         className="h-36 w-full object-cover"
                       />
+
                       <div className="p-3">
                         <p className="text-sm font-black">
                           Current photo {index + 1}
                         </p>
+
                         <button
                           type="button"
                           onClick={() => deletePhoto(photo)}
@@ -554,6 +600,7 @@ export default function EditListingPage() {
 
               <div className="mt-5 rounded-3xl border-2 border-dashed border-slate-300 bg-[#f7f4ef] p-8 text-center">
                 <p className="text-lg font-black">Add more property photos</p>
+
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   New photos will upload when you save the listing.
                 </p>
@@ -581,10 +628,12 @@ export default function EditListingPage() {
                           alt={`Selected property photo ${index + 1}`}
                           className="h-36 w-full object-cover"
                         />
+
                         <div className="p-3">
                           <p className="truncate text-sm font-black">
                             {photo.name}
                           </p>
+
                           <p className="mt-1 text-xs font-bold text-slate-500">
                             New photo {index + 1}
                           </p>

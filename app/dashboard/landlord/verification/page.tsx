@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { createNotification } from "@/lib/createNotification";
 
 type LandlordVerification = {
   id: string;
@@ -24,6 +25,10 @@ type LandlordDocument = {
   file_path: string;
   verification_status: string;
   created_at: string;
+};
+
+type AdminProfile = {
+  id: string;
 };
 
 const documentTypes = [
@@ -140,6 +145,31 @@ export default function LandlordVerificationPage() {
     setLoading(false);
   }
 
+  async function notifyAdminsVerificationPending() {
+    const { data: admins, error: adminError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "admin");
+
+    if (adminError || !admins || admins.length === 0) {
+      return;
+    }
+
+    const landlordName =
+      legalName.trim() || companyName.trim() || email.trim() || "A landlord";
+
+   for (const admin of admins as AdminProfile[]) {
+  await createNotification({
+    userId: admin.id,
+    title: "New landlord verification pending",
+    message: `${landlordName} submitted verification documents for review.`,
+    type: "admin_landlord_verification_pending",
+    targetUrl: "/admin/landlord-verifications",
+    dedupe: true,
+  });
+}
+  }
+
   async function saveVerification(status = "incomplete") {
     if (!landlordId) {
       setMessage("Please log in first.");
@@ -149,6 +179,8 @@ export default function LandlordVerificationPage() {
     setSaving(true);
     setMessage("");
 
+    const previousStatus = verification?.verification_status || "incomplete";
+
     const payload = {
       landlord_id: landlordId,
       legal_name: legalName.trim(),
@@ -156,7 +188,8 @@ export default function LandlordVerificationPage() {
       phone: phone.trim(),
       email: email.trim(),
       verification_status: status,
-      submitted_at: status === "pending_review" ? new Date().toISOString() : null,
+      submitted_at:
+        status === "pending_review" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     };
 
@@ -170,6 +203,10 @@ export default function LandlordVerificationPage() {
       setMessage(error.message);
       setSaving(false);
       return;
+    }
+
+    if (status === "pending_review" && previousStatus !== "pending_review") {
+      await notifyAdminsVerificationPending();
     }
 
     setMessage(
@@ -311,15 +348,15 @@ export default function LandlordVerificationPage() {
 
   const status = verification?.verification_status || "incomplete";
   const statusLabel =
-  status === "pending_review"
-    ? "Pending Review"
-    : status === "incomplete"
-    ? "Incomplete"
-    : status === "verified"
-    ? "Verified"
-    : status === "rejected"
-    ? "Rejected"
-    : status;
+    status === "pending_review"
+      ? "Pending Review"
+      : status === "incomplete"
+      ? "Incomplete"
+      : status === "verified"
+      ? "Verified"
+      : status === "rejected"
+      ? "Rejected"
+      : status;
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -349,8 +386,8 @@ export default function LandlordVerificationPage() {
             </div>
 
             <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
-  {statusLabel}
-</span>
+              {statusLabel}
+            </span>
           </div>
 
           {message && (
@@ -487,14 +524,14 @@ export default function LandlordVerificationPage() {
 
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
                         {document.verification_status === "pending_review"
-  ? "Pending Review"
-  : document.verification_status === "uploaded"
-  ? "Uploaded"
-  : document.verification_status === "approved"
-  ? "Approved"
-  : document.verification_status === "rejected"
-  ? "Rejected"
-  : document.verification_status}
+                          ? "Pending Review"
+                          : document.verification_status === "uploaded"
+                          ? "Uploaded"
+                          : document.verification_status === "approved"
+                          ? "Approved"
+                          : document.verification_status === "rejected"
+                          ? "Rejected"
+                          : document.verification_status}
                       </span>
                     </div>
 

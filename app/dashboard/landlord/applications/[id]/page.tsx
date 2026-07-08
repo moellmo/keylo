@@ -508,6 +508,15 @@ export default function ApplicationDetailPage() {
               label="Approve"
             />
 
+            {application.status === "approved" && (
+  <Link
+    href={`/dashboard/landlord/applications/${application.id}/create-lease`}
+    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+  >
+    Create Lease
+  </Link>
+)}
+
             <StatusButton
               applicationId={application.id}
               status="declined"
