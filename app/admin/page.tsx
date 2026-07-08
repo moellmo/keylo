@@ -1086,11 +1086,30 @@ export default function AdminPage() {
 
         {activeTab === "applications" && (
           <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-            <SectionHeader
-              title="Recent Applications"
-              text="Showing latest 25 applications. We can add full pagination later."
-              badge={`${applications.length} loaded`}
-            />
+            <div className="border-b border-slate-200 p-6">
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-2xl font-black">Recent Applications</h2>
+      <p className="mt-1 text-sm font-bold text-slate-500">
+        Showing latest 25 applications. Use the full applications page for
+        search, status filters, screening filters, and pagination.
+      </p>
+    </div>
+
+    <div className="flex flex-wrap gap-3">
+      <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">
+        {applications.length} loaded
+      </span>
+
+      <Link
+        href="/admin/applications"
+        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        View All Applications
+      </Link>
+    </div>
+  </div>
+</div>
 
             {applications.length > 0 ? (
               <div className="divide-y divide-slate-200">
