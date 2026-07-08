@@ -56,6 +56,8 @@ type Lease = {
   landlord_name: string | null;
   property_address: string | null;
   monthly_rent: number | null;
+  lease_start_date: string | null;
+  lease_end_date: string | null;
   created_at: string;
 };
 
@@ -261,19 +263,21 @@ export default function AdminPage() {
     }
 
     const { data: leaseRows, error: leasesError } = await supabase
-      .from("leases")
-      .select(
-        `
-        id,
-        lease_status,
-        tenant_name,
-        landlord_name,
-        property_address,
-        monthly_rent,
-        created_at
-      `
-      )
-      .order("created_at", { ascending: false });
+  .from("leases")
+  .select(
+    `
+    id,
+    lease_status,
+    tenant_name,
+    landlord_name,
+    property_address,
+    monthly_rent,
+    lease_start_date,
+    lease_end_date,
+    created_at
+  `
+  )
+  .order("created_at", { ascending: false });
 
     if (leasesError) {
       setMessage(`Leases error: ${leasesError.message}`);
@@ -347,7 +351,16 @@ export default function AdminPage() {
 
     setLoading(false);
   }
+function getDaysUntilLeaseEnds(leaseEndDate: string | null) {
+  if (!leaseEndDate) return null;
 
+  const today = new Date();
+  const endDate = new Date(`${leaseEndDate}T00:00:00`);
+
+  return Math.ceil(
+    (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
+}
   function getLandlordName(landlordId: string | null) {
     if (!landlordId) return "Unknown";
 
@@ -406,6 +419,15 @@ export default function AdminPage() {
     (lease) =>
       lease.lease_status !== "completed" && lease.lease_status !== "cancelled"
   );
+
+  const leasesEndingSoon = leases.filter((lease) => {
+  if (!lease.lease_end_date) return false;
+  if (lease.lease_status === "cancelled") return false;
+
+  const daysUntilEnd = getDaysUntilLeaseEnds(lease.lease_end_date);
+
+  return daysUntilEnd !== null && daysUntilEnd >= 0 && daysUntilEnd <= 90;
+});
 
   const unpaidCharges = rentCharges.filter(
     (charge) => charge.status === "unpaid" || charge.status === "overdue"
@@ -567,6 +589,17 @@ export default function AdminPage() {
               />
             )}
 
+            {leasesEndingSoon.length > 0 && (
+  <ActionCard
+    title="Leases ending soon"
+    text={`${leasesEndingSoon.length} lease${
+      leasesEndingSoon.length === 1 ? " is" : "s are"
+    } ending within 90 days.`}
+    href="#leases-ending-soon"
+    button="Review Leases"
+  />
+)}
+
             {unpaidBalance > 0 && (
               <ActionCard
                 title="Unpaid charges"
@@ -582,6 +615,7 @@ export default function AdminPage() {
               urgentMaintenance.length === 0 &&
               approvedScreenings.length === 0 &&
               pendingApplications === 0 &&
+              leasesEndingSoon.length === 0 &&
               unpaidBalance === 0 && (
                 <div className="rounded-3xl bg-[#f7f4ef] p-6 md:col-span-2 xl:col-span-4">
                   <h3 className="text-2xl font-black">All caught up</h3>
@@ -592,6 +626,87 @@ export default function AdminPage() {
               )}
           </div>
         </section>
+
+        <section
+  id="leases-ending-soon"
+  className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+>
+  <SectionHeader
+    title="Leases Ending Soon"
+    text="Leases ending within the next 90 days."
+    badge={`${leasesEndingSoon.length} ending soon`}
+  />
+
+  {leasesEndingSoon.length > 0 ? (
+    <div className="divide-y divide-slate-200">
+      {leasesEndingSoon.slice(0, 10).map((lease) => {
+        const daysUntilEnd = getDaysUntilLeaseEnds(lease.lease_end_date);
+
+        return (
+          <div
+            key={lease.id}
+            className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
+          >
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-xl font-black">
+                  {lease.property_address || "Lease Agreement"}
+                </h3>
+
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                  {daysUntilEnd === 0
+                    ? "Ends today"
+                    : `${daysUntilEnd} day${daysUntilEnd === 1 ? "" : "s"} left`}
+                </span>
+
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                  {lease.lease_status}
+                </span>
+              </div>
+
+              <p className="mt-2 font-bold text-slate-500">
+                Tenant: {lease.tenant_name || "Not provided"}
+              </p>
+
+              <p className="mt-2 text-sm font-bold text-slate-500">
+                Landlord: {lease.landlord_name || "Not provided"}
+                {lease.monthly_rent
+                  ? ` · $${lease.monthly_rent.toLocaleString()}/mo`
+                  : ""}
+              </p>
+
+              <p className="mt-2 text-sm font-bold text-slate-500">
+                Lease dates: {lease.lease_start_date || "No start"} to{" "}
+                {lease.lease_end_date || "No end"}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
+              >
+                Renewal Plan
+              </Link>
+
+              <Link
+                href={`/dashboard/landlord/leases/${lease.id}`}
+                className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
+              >
+                Open Lease
+              </Link>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <EmptySection
+      title="No leases ending soon"
+      text="Leases ending within 90 days will appear here."
+    />
+  )}
+</section>
 
         <section
           id="pending-listings"
