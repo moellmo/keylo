@@ -13,8 +13,12 @@ type Property = {
   monthly_rent: number;
   bedrooms: string | null;
   bathrooms: string | null;
+  street_address: string | null;
   city: string;
   state: string;
+  zip_code: string | null;
+  neighborhood: string | null;
+  available_date: string | null;
   description: string | null;
   pet_policy: string | null;
   status: string;
@@ -32,8 +36,12 @@ export default async function ListingsPage() {
       monthly_rent,
       bedrooms,
       bathrooms,
+      street_address,
       city,
       state,
+      zip_code,
+      neighborhood,
+      available_date,
       description,
       pet_policy,
       status,
@@ -49,17 +57,15 @@ export default async function ListingsPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-       
-
-        <div className="mx-auto max-w-7xl px-6 py-10">
-          <Link href="/" className="text-sm font-bold text-slate-600">
+      <main className="min-h-screen bg-[#f7f1e7] text-[#07101f]">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
+          <Link href="/" className="text-sm font-bold text-[#6f7b91]">
             ← Back to Home
           </Link>
 
-          <div className="mt-8 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+          <div className="mt-8 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-[#ded6c8]">
             <h1 className="text-3xl font-black">Could not load listings</h1>
-            <p className="mt-3 text-slate-600">{error.message}</p>
+            <p className="mt-3 text-[#31415f]">{error.message}</p>
           </div>
         </div>
       </main>
@@ -69,33 +75,40 @@ export default async function ListingsPage() {
   const rentalListings = (listings || []) as Property[];
 
   return (
-    <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      
-
-      <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <Link href="/" className="text-sm font-bold text-slate-600">
-              ← Back to Home
-            </Link>
-
-            <h1 className="mt-4 text-5xl font-black tracking-tight">
-              Browse Rentals
-            </h1>
-
-            <p className="mt-3 max-w-2xl text-lg leading-8 text-slate-600">
-              Search available rentals posted by verified landlords.
-            </p>
-          </div>
-
-          <Link
-            href="/dashboard/landlord/properties/new"
-            className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
-          >
-            Post a Listing
+    <main className="min-h-screen bg-[#f7f1e7] text-[#07101f]">
+      <section className="border-b border-[#ded6c8] bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
+          <Link href="/" className="text-sm font-bold text-[#6f7b91]">
+            ← Back to Home
           </Link>
-        </div>
 
+          <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#8a7652]">
+                Rentals
+              </p>
+
+              <h1 className="mt-3 text-5xl font-black tracking-[-0.06em] sm:text-6xl">
+                Browse Rentals
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-lg leading-8 text-[#31415f]">
+                Search verified rentals by location, rent, bedrooms, bathrooms,
+                pet policy, and availability.
+              </p>
+            </div>
+
+            <Link
+              href="/landlords"
+              className="rounded-full bg-[#07101f] px-6 py-4 text-center font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              List Your Property
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
         <ListingsClient listings={rentalListings} />
       </div>
     </main>
