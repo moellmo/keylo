@@ -479,21 +479,28 @@ function getDaysUntilLeaseEnds(leaseEndDate: string | null) {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/admin/landlord-verifications"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
-            >
-              Landlord Verifications
-            </Link>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+  <Link
+    href="/admin/landlord-verifications"
+    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+  >
+    Landlord Verifications
+  </Link>
 
-            <Link
-              href="/dashboard"
-              className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-            >
-              My Dashboard
-            </Link>
-          </div>
+  <Link
+    href="/admin/email-logs"
+    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+  >
+    Email Logs
+  </Link>
+
+  <Link
+    href="/dashboard"
+    className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+  >
+    My Dashboard
+  </Link>
+</div>
         </div>
 
         {message && (
