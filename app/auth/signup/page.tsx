@@ -1,22 +1,38 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type UserRole = "tenant" | "landlord";
 
 function safeNextPath(next: string | null) {
   if (!next) return null;
-
   if (!next.startsWith("/")) return null;
   if (next.startsWith("//")) return null;
-
   return next;
 }
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<SignupLoading />}>
+      <SignupContent />
+    </Suspense>
+  );
+}
+
+function SignupLoading() {
+  return (
+    <main className="min-h-screen bg-[#f7f4ef] px-6 py-12 text-slate-950">
+      <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
+        <h1 className="text-3xl font-black">Loading signup...</h1>
+      </div>
+    </main>
+  );
+}
+
+function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
