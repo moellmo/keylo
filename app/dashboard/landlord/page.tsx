@@ -239,9 +239,11 @@ export default function LandlordDashboardPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading dashboard...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading dashboard...
+          </h1>
         </div>
       </main>
     );
@@ -250,7 +252,7 @@ export default function LandlordDashboardPage() {
   if (!loggedIn) {
     return (
       <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-        <div className="mx-auto max-w-3xl px-6 py-10">
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
           <div className="rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
             <h1 className="text-3xl font-black">Please log in</h1>
             <p className="mt-3 text-slate-600">
@@ -350,63 +352,57 @@ export default function LandlordDashboardPage() {
       (request.status === "open" || request.status === "in_progress")
   );
 
-  const recentLeases = leases.slice(0, 5);
-  const recentMaintenance = maintenanceRequests.slice(0, 4);
+  const recentLeases = leases.slice(0, 4);
+  const recentMaintenance = maintenanceRequests.slice(0, 3);
+  const recentListings = listings.slice(0, 6);
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <Link href="/" className="text-sm font-bold text-slate-600">
-              ← Back to Home
-            </Link>
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
+          <Link href="/" className="text-sm font-bold text-slate-600">
+            ← Back to Home
+          </Link>
 
-            <h1 className="mt-4 text-5xl font-black tracking-tight">
-              Landlord Dashboard
-            </h1>
+          <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Landlord
+              </p>
 
-            <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
-              Manage listings, applications, leases, rent payments, maintenance
-              requests, and landlord verification.
-            </p>
-          </div>
+              <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
+                Dashboard
+              </h1>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+                Manage listings, applications, leases, rent payments, and
+                maintenance in one place.
+              </p>
+            </div>
+
             <Link
               href="/dashboard/landlord/properties/new"
-              className="rounded-full bg-slate-950 px-6 py-3 text-center font-black text-white"
+              className="rounded-full bg-slate-950 px-6 py-4 text-center text-base font-black text-white shadow-sm"
             >
               Post New Listing
             </Link>
+          </div>
 
-            <Link
-              href="/dashboard/landlord/payments"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
-            >
-              Payments
-            </Link>
-
-            <Link
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <QuickLink href="/dashboard/landlord/payments" label="Payments" />
+            <QuickLink
               href="/dashboard/landlord/maintenance"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
-            >
-              Maintenance
-            </Link>
-
-            <Link
+              label="Maintenance"
+            />
+            <QuickLink
               href="/dashboard/landlord/lease-builder"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
-            >
-              Lease Builder
-            </Link>
-
-            <Link
-              href="/dashboard/notifications"
-              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
-            >
-              Notifications
-            </Link>
+              label="Lease Builder"
+            />
+            <QuickLink href="/dashboard/notifications" label="Notifications" />
+            <QuickLink
+              href="/dashboard/landlord/verification"
+              label="Verification"
+            />
           </div>
         </div>
 
@@ -416,9 +412,9 @@ export default function LandlordDashboardPage() {
           </div>
         )}
 
-        <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <DashboardCard
-            title="Unpaid Balance"
+            title="Unpaid"
             value={formatMoneyFromCents(unpaidBalance)}
             text={`${unpaidCharges.length} unpaid charge${
               unpaidCharges.length === 1 ? "" : "s"
@@ -447,37 +443,32 @@ export default function LandlordDashboardPage() {
           <DashboardCard
             title="Leases"
             value={String(leases.length)}
-            text={`${leasesNeedingSignature.length} need signature · ${completedLeases.length} completed`}
+            text={`${leasesNeedingSignature.length} sign · ${completedLeases.length} done`}
             href="#leases"
-            urgent={leasesNeedingSignature.length > 0 || leasesEndingSoon.length > 0}
+            urgent={
+              leasesNeedingSignature.length > 0 || leasesEndingSoon.length > 0
+            }
           />
         </section>
 
-        <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <section className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Needs Attention
+                Overview
               </p>
 
-              <h2 className="mt-2 text-3xl font-black">Today’s landlord tasks</h2>
+              <h2 className="mt-2 text-2xl font-black sm:text-3xl">
+                Needs attention
+              </h2>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/dashboard/landlord/profile"
-                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black"
-              >
-                Profile
-              </Link>
-
-              <Link
-                href="/dashboard/landlord/verification"
-                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black"
-              >
-                Verification
-              </Link>
-            </div>
+            <Link
+              href="/dashboard/landlord/profile"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black"
+            >
+              Profile
+            </Link>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -486,9 +477,9 @@ export default function LandlordDashboardPage() {
                 title="Lease ending soon"
                 text={`${leaseEndingSoon.tenant_name || "A tenant"} has a lease ending on ${
                   leaseEndingSoon.lease_end_date
-                }. Ask their plan or send a renewal offer.`}
+                }.`}
                 href={`/dashboard/landlord/leases/${leaseEndingSoon.id}/renewal`}
-                button="Open Renewal Plan"
+                button="Renewal Plan"
               />
             )}
 
@@ -497,7 +488,7 @@ export default function LandlordDashboardPage() {
                 title="Sign lease"
                 text={`${leasesNeedingSignature.length} lease${
                   leasesNeedingSignature.length === 1 ? "" : "s"
-                } waiting for your final signature.`}
+                } waiting for your signature.`}
                 href={`/dashboard/landlord/leases/${leasesNeedingSignature[0].id}`}
                 button="Open Lease"
               />
@@ -505,10 +496,10 @@ export default function LandlordDashboardPage() {
 
             {unpaidBalance > 0 && (
               <ActionCard
-                title="Review unpaid charges"
+                title="Unpaid charges"
                 text={`${formatMoneyFromCents(unpaidBalance)} is currently unpaid.`}
                 href="/dashboard/landlord/payments"
-                button="Open Payments"
+                button="Payments"
               />
             )}
 
@@ -517,7 +508,7 @@ export default function LandlordDashboardPage() {
                 title="Urgent maintenance"
                 text={`${urgentMaintenance.length} urgent or emergency request${
                   urgentMaintenance.length === 1 ? "" : "s"
-                } need attention.`}
+                }.`}
                 href="/dashboard/landlord/maintenance"
                 button="Open Requests"
               />
@@ -530,18 +521,18 @@ export default function LandlordDashboardPage() {
                   screeningApprovedApplications.length === 1 ? " has" : "s have"
                 } approved screening consent.`}
                 href="#listings"
-                button="Review Applicants"
+                button="Applicants"
               />
             )}
 
             {screeningRequestedApplications.length > 0 && (
               <ActionCard
                 title="Screening pending"
-                text={`${screeningRequestedApplications.length} tenant screening request${
+                text={`${screeningRequestedApplications.length} request${
                   screeningRequestedApplications.length === 1 ? "" : "s"
                 } still pending.`}
                 href="#listings"
-                button="Review Applicants"
+                button="Applicants"
               />
             )}
 
@@ -552,7 +543,7 @@ export default function LandlordDashboardPage() {
                   pendingListings === 1 ? " is" : "s are"
                 } waiting for admin review.`}
                 href="#listings"
-                button="View Listings"
+                button="Listings"
               />
             )}
 
@@ -575,7 +566,7 @@ export default function LandlordDashboardPage() {
               rejectedListings === 0 &&
               screeningApprovedApplications.length === 0 &&
               screeningRequestedApplications.length === 0 && (
-                <div className="rounded-3xl bg-[#f7f4ef] p-6 md:col-span-2 xl:col-span-4">
+                <div className="rounded-3xl bg-[#f7f4ef] p-5 md:col-span-2 xl:col-span-4">
                   <h3 className="text-2xl font-black">All caught up</h3>
                   <p className="mt-2 text-slate-600">
                     No urgent maintenance, unpaid charges, lease signatures,
@@ -586,59 +577,17 @@ export default function LandlordDashboardPage() {
           </div>
         </section>
 
-        <section className="mt-8 grid gap-8 xl:grid-cols-[1fr_420px]">
+        <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]">
           <div
             id="needs-signature"
             className="rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
           >
-            <div className="border-b border-slate-200 p-6">
-              <h2 className="text-2xl font-black">
-                Leases Needing Your Signature
-              </h2>
-            </div>
+            <SectionHeader title="Leases Needing Signature" />
 
             {leasesNeedingSignature.length > 0 ? (
               <div className="divide-y divide-slate-200">
                 {leasesNeedingSignature.map((lease) => (
-                  <div
-                    key={lease.id}
-                    className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-xl font-black">
-                          Lease for {lease.tenant_name || "Tenant"}
-                        </h3>
-
-                        <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-black text-yellow-700">
-                          Needs Your Signature
-                        </span>
-                      </div>
-
-                      <p className="mt-2 font-bold text-slate-500">
-                        {lease.property_address ||
-                          "No property address provided"}
-                      </p>
-
-                      <p className="mt-2 text-sm font-bold text-slate-500">
-                        {lease.monthly_rent
-                          ? `$${lease.monthly_rent.toLocaleString()}/mo`
-                          : "Rent not provided"}
-                        {lease.tenant_signed_at
-                          ? ` · Tenant signed ${new Date(
-                              lease.tenant_signed_at
-                            ).toLocaleString()}`
-                          : ""}
-                      </p>
-                    </div>
-
-                    <Link
-                      href={`/dashboard/landlord/leases/${lease.id}`}
-                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                    >
-                      Open & Sign
-                    </Link>
-                  </div>
+                  <LeaseSignatureRow key={lease.id} lease={lease} />
                 ))}
               </div>
             ) : (
@@ -649,7 +598,7 @@ export default function LandlordDashboardPage() {
             )}
           </div>
 
-          <div className="grid gap-8">
+          <div className="grid gap-6">
             <MiniPanel
               title="Payments"
               value={formatMoneyFromCents(unpaidBalance)}
@@ -672,68 +621,23 @@ export default function LandlordDashboardPage() {
 
         <section
           id="leases"
-          className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+          className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
         >
-          <div className="flex items-center justify-between border-b border-slate-200 p-6">
-            <h2 className="text-2xl font-black">Recent Leases</h2>
-
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-              {sentLeases.length} sent
-            </span>
-          </div>
+          <SectionHeader
+            title="Recent Leases"
+            badge={`${sentLeases.length} sent`}
+            href="/dashboard/landlord/leases"
+          />
 
           {recentLeases.length > 0 ? (
             <div className="divide-y divide-slate-200">
               {recentLeases.map((lease) => (
-                <div
+                <LeaseRow
                   key={lease.id}
-                  className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-black">
-                        Lease for {lease.tenant_name || "Tenant"}
-                      </h3>
-
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-black ${leaseStatusClass(
-                          lease.lease_status
-                        )}`}
-                      >
-                        {leaseStatusLabel(lease.lease_status)}
-                      </span>
-                    </div>
-
-                    <p className="mt-2 font-bold text-slate-500">
-                      {lease.property_address || "No property address provided"}
-                    </p>
-
-                    <p className="mt-2 text-sm font-bold text-slate-500">
-                      {lease.monthly_rent
-                        ? `$${lease.monthly_rent.toLocaleString()}/mo`
-                        : "Rent not provided"}
-                      {lease.lease_start_date && lease.lease_end_date
-                        ? ` · ${lease.lease_start_date} to ${lease.lease_end_date}`
-                        : ""}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <Link
-                      href={`/dashboard/landlord/leases/${lease.id}/renewal`}
-                      className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-                    >
-                      Renewal Plan
-                    </Link>
-
-                    <Link
-                      href={`/dashboard/landlord/leases/${lease.id}`}
-                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                    >
-                      View Lease
-                    </Link>
-                  </div>
-                </div>
+                  lease={lease}
+                  leaseStatusClass={leaseStatusClass}
+                  leaseStatusLabel={leaseStatusLabel}
+                />
               ))}
             </div>
           ) : (
@@ -744,58 +648,16 @@ export default function LandlordDashboardPage() {
           )}
         </section>
 
-        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="flex items-center justify-between border-b border-slate-200 p-6">
-            <h2 className="text-2xl font-black">Recent Maintenance</h2>
-
-            <Link
-              href="/dashboard/landlord/maintenance"
-              className="text-sm font-black underline"
-            >
-              View All
-            </Link>
-          </div>
+        <section className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <SectionHeader
+            title="Recent Maintenance"
+            href="/dashboard/landlord/maintenance"
+          />
 
           {recentMaintenance.length > 0 ? (
             <div className="divide-y divide-slate-200">
               {recentMaintenance.map((request) => (
-                <div
-                  key={request.id}
-                  className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-black">{request.title}</h3>
-
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-black ${
-                          request.priority === "urgent" ||
-                          request.priority === "emergency"
-                            ? "bg-red-50 text-red-700"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {request.priority}
-                      </span>
-
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                        {request.status}
-                      </span>
-                    </div>
-
-                    <p className="mt-2 text-sm font-bold text-slate-500">
-                      Submitted{" "}
-                      {new Date(request.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-
-                  <Link
-                    href="/dashboard/landlord/maintenance"
-                    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                  >
-                    Open
-                  </Link>
-                </div>
+                <MaintenanceRow key={request.id} request={request} />
               ))}
             </div>
           ) : (
@@ -806,111 +668,25 @@ export default function LandlordDashboardPage() {
           )}
         </section>
 
-        <div
+        <section
           id="listings"
-          className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+          className="mt-6 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
         >
-          <div className="flex items-center justify-between border-b border-slate-200 p-6">
-            <h2 className="text-2xl font-black">Your Listings</h2>
+          <SectionHeader
+            title="Your Listings"
+            href="/dashboard/landlord/properties/new"
+            hrefLabel="Post New"
+          />
 
-            <Link
-              href="/dashboard/landlord/properties/new"
-              className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-            >
-              Post New
-            </Link>
-          </div>
-
-          {listings.length > 0 ? (
+          {recentListings.length > 0 ? (
             <div className="divide-y divide-slate-200">
-              {listings.map((listing) => (
-                <div
+              {recentListings.map((listing) => (
+                <ListingRow
                   key={listing.id}
-                  className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-black">{listing.title}</h3>
-
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(
-                          listing.status
-                        )}`}
-                      >
-                        {statusLabel(listing.status)}
-                      </span>
-                    </div>
-
-                    <p className="mt-2 font-bold text-slate-500">
-                      {listing.city}, {listing.state} · $
-                      {listing.monthly_rent.toLocaleString()}/mo
-                    </p>
-
-                    <p className="mt-2 text-sm font-bold text-slate-500">
-                      {getApplications(listing).length} application
-                      {getApplications(listing).length === 1 ? "" : "s"}
-                    </p>
-
-                    {listing.status === "pending" && (
-                      <div className="mt-3 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-bold text-yellow-700">
-                        This listing is waiting for admin approval before it
-                        appears publicly.
-                      </div>
-                    )}
-
-                    {listing.status === "rejected" &&
-                      listing.rejection_note && (
-                        <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                          Rejection reason: {listing.rejection_note}
-                        </div>
-                      )}
-
-                    {listing.status === "rejected" &&
-                      !listing.rejection_note && (
-                        <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                          This listing was rejected. Please edit and resubmit.
-                        </div>
-                      )}
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                    <Link
-                      href={`/dashboard/landlord/properties/${listing.id}/preview`}
-                      className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-                    >
-                      Preview
-                    </Link>
-
-                    {listing.status === "published" && (
-                      <Link
-                        href={`/listings/${listing.id}`}
-                        className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-                      >
-                        Public View
-                      </Link>
-                    )}
-
-                    <Link
-                      href={`/dashboard/landlord/properties/${listing.id}/edit`}
-                      className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-                    >
-                      Edit
-                    </Link>
-
-                    {listing.status === "rejected" && (
-                      <ResubmitListingButton propertyId={listing.id} />
-                    )}
-
-                    <ArchiveListingButton propertyId={listing.id} />
-
-                    <Link
-                      href={`/dashboard/landlord/properties/${listing.id}/applications`}
-                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                    >
-                      Applicants
-                    </Link>
-                  </div>
-                </div>
+                  listing={listing}
+                  statusClass={statusClass}
+                  statusLabel={statusLabel}
+                />
               ))}
             </div>
           ) : (
@@ -921,9 +697,28 @@ export default function LandlordDashboardPage() {
               button="Post First Listing"
             />
           )}
-        </div>
+
+          {listings.length > recentListings.length && (
+            <div className="border-t border-slate-200 p-5 text-center">
+              <p className="text-sm font-bold text-slate-500">
+                Showing latest {recentListings.length} of {listings.length} listings.
+              </p>
+            </div>
+          )}
+        </section>
       </div>
     </main>
+  );
+}
+
+function QuickLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-2xl border border-slate-300 bg-white px-4 py-4 text-center text-sm font-black text-slate-950 shadow-sm"
+    >
+      {label}
+    </Link>
   );
 }
 
@@ -942,16 +737,14 @@ function DashboardCard({
 }) {
   const card = (
     <div
-      className={`h-full rounded-3xl p-6 shadow-sm ring-1 transition ${
-        urgent
-          ? "bg-yellow-50 ring-yellow-200"
-          : "bg-white ring-slate-200"
+      className={`h-full rounded-3xl p-5 shadow-sm ring-1 transition sm:p-6 ${
+        urgent ? "bg-yellow-50 ring-yellow-200" : "bg-white ring-slate-200"
       } ${href ? "hover:-translate-y-0.5 hover:shadow-md" : ""}`}
     >
-      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 sm:text-sm">
         {title}
       </p>
-      <p className="mt-3 text-4xl font-black">{value}</p>
+      <p className="mt-3 text-3xl font-black sm:text-4xl">{value}</p>
       <p className="mt-2 text-sm font-bold text-slate-500">{text}</p>
     </div>
   );
@@ -974,10 +767,8 @@ function ActionCard({
 }) {
   return (
     <div className="rounded-3xl bg-[#f7f4ef] p-5">
-      <h3 className="text-xl font-black">{title}</h3>
-      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-600">
-        {text}
-      </p>
+      <h3 className="text-lg font-black sm:text-xl">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
 
       <Link
         href={href}
@@ -1003,11 +794,11 @@ function MiniPanel({
   button: string;
 }) {
   return (
-    <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+    <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
       <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
         {title}
       </p>
-      <p className="mt-3 text-4xl font-black">{value}</p>
+      <p className="mt-3 text-3xl font-black sm:text-4xl">{value}</p>
       <p className="mt-2 font-bold text-slate-500">{text}</p>
 
       <Link
@@ -1016,6 +807,272 @@ function MiniPanel({
       >
         {button}
       </Link>
+    </div>
+  );
+}
+
+function SectionHeader({
+  title,
+  badge,
+  href,
+  hrefLabel = "View All",
+}: {
+  title: string;
+  badge?: string;
+  href?: string;
+  hrefLabel?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <h2 className="text-2xl font-black">{title}</h2>
+
+      <div className="flex flex-wrap gap-3">
+        {badge && (
+          <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            {badge}
+          </span>
+        )}
+
+        {href && (
+          <Link
+            href={href}
+            className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white"
+          >
+            {hrefLabel}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LeaseSignatureRow({ lease }: { lease: LandlordLease }) {
+  return (
+    <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-lg font-black sm:text-xl">
+            Lease for {lease.tenant_name || "Tenant"}
+          </h3>
+
+          <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-black text-yellow-700">
+            Needs Your Signature
+          </span>
+        </div>
+
+        <p className="mt-2 font-bold text-slate-500">
+          {lease.property_address || "No property address provided"}
+        </p>
+
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          {lease.monthly_rent
+            ? `$${lease.monthly_rent.toLocaleString()}/mo`
+            : "Rent not provided"}
+          {lease.tenant_signed_at
+            ? ` · Tenant signed ${new Date(
+                lease.tenant_signed_at
+              ).toLocaleString()}`
+            : ""}
+        </p>
+      </div>
+
+      <Link
+        href={`/dashboard/landlord/leases/${lease.id}`}
+        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+      >
+        Open & Sign
+      </Link>
+    </div>
+  );
+}
+
+function LeaseRow({
+  lease,
+  leaseStatusClass,
+  leaseStatusLabel,
+}: {
+  lease: LandlordLease;
+  leaseStatusClass: (status: string) => string;
+  leaseStatusLabel: (status: string) => string;
+}) {
+  return (
+    <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-lg font-black sm:text-xl">
+            Lease for {lease.tenant_name || "Tenant"}
+          </h3>
+
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-black ${leaseStatusClass(
+              lease.lease_status
+            )}`}
+          >
+            {leaseStatusLabel(lease.lease_status)}
+          </span>
+        </div>
+
+        <p className="mt-2 font-bold text-slate-500">
+          {lease.property_address || "No property address provided"}
+        </p>
+
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          {lease.monthly_rent
+            ? `$${lease.monthly_rent.toLocaleString()}/mo`
+            : "Rent not provided"}
+          {lease.lease_start_date && lease.lease_end_date
+            ? ` · ${lease.lease_start_date} to ${lease.lease_end_date}`
+            : ""}
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:flex sm:flex-row">
+        <Link
+          href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+        >
+          Renewal
+        </Link>
+
+        <Link
+          href={`/dashboard/landlord/leases/${lease.id}`}
+          className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+        >
+          View
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function MaintenanceRow({ request }: { request: MaintenanceRequest }) {
+  return (
+    <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-lg font-black sm:text-xl">{request.title}</h3>
+
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-black ${
+              request.priority === "urgent" || request.priority === "emergency"
+                ? "bg-red-50 text-red-700"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {request.priority}
+          </span>
+
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            {request.status}
+          </span>
+        </div>
+
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          Submitted {new Date(request.created_at).toLocaleDateString()}
+        </p>
+      </div>
+
+      <Link
+        href="/dashboard/landlord/maintenance"
+        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+      >
+        Open
+      </Link>
+    </div>
+  );
+}
+
+function ListingRow({
+  listing,
+  statusClass,
+  statusLabel,
+}: {
+  listing: PropertyWithApplications;
+  statusClass: (status: string) => string;
+  statusLabel: (status: string) => string;
+}) {
+  return (
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between sm:p-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-lg font-black sm:text-xl">{listing.title}</h3>
+
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(
+              listing.status
+            )}`}
+          >
+            {statusLabel(listing.status)}
+          </span>
+        </div>
+
+        <p className="mt-2 font-bold text-slate-500">
+          {listing.city}, {listing.state} · $
+          {listing.monthly_rent.toLocaleString()}/mo
+        </p>
+
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          {getApplications(listing).length} application
+          {getApplications(listing).length === 1 ? "" : "s"}
+        </p>
+
+        {listing.status === "pending" && (
+          <div className="mt-3 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-bold text-yellow-700">
+            This listing is waiting for admin approval before it appears
+            publicly.
+          </div>
+        )}
+
+        {listing.status === "rejected" && listing.rejection_note && (
+          <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            Rejection reason: {listing.rejection_note}
+          </div>
+        )}
+
+        {listing.status === "rejected" && !listing.rejection_note && (
+          <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            This listing was rejected. Please edit and resubmit.
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:flex sm:flex-row sm:flex-wrap">
+        <Link
+          href={`/dashboard/landlord/properties/${listing.id}/preview`}
+          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+        >
+          Preview
+        </Link>
+
+        {listing.status === "published" && (
+          <Link
+            href={`/listings/${listing.id}`}
+            className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+          >
+            Public
+          </Link>
+        )}
+
+        <Link
+          href={`/dashboard/landlord/properties/${listing.id}/edit`}
+          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+        >
+          Edit
+        </Link>
+
+        {listing.status === "rejected" && (
+          <ResubmitListingButton propertyId={listing.id} />
+        )}
+
+        <ArchiveListingButton propertyId={listing.id} />
+
+        <Link
+          href={`/dashboard/landlord/properties/${listing.id}/applications`}
+          className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+        >
+          Applicants
+        </Link>
+      </div>
     </div>
   );
 }
