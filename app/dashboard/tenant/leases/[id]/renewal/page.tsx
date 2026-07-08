@@ -35,8 +35,10 @@ type RenewalRequest = {
   tenant_message: string | null;
   landlord_message: string | null;
   proposed_monthly_rent: number | null;
+  proposed_security_deposit: number | null;
   proposed_lease_start_date: string | null;
   proposed_lease_end_date: string | null;
+  renewal_lease_id: string | null;
   created_at: string;
 };
 
@@ -47,7 +49,33 @@ function formatRenewalType(type: string) {
   if (type === "landlord_offers_renewal") return "Renewal Offered";
   if (type === "landlord_declines_renewal") return "Renewal Declined";
 
-  return type;
+  return type.replaceAll("_", " ");
+}
+
+function formatRenewalStatus(status: string | null) {
+  if (!status || status === "not_started") return "Not Started";
+  if (status === "plan_requested") return "Plan Requested";
+  if (status === "tenant_wants_to_renew") return "Tenant Wants to Renew";
+  if (status === "tenant_moving_out") return "Tenant Moving Out";
+  if (status === "landlord_offered_renewal") return "Renewal Offered";
+  if (status === "renewal_lease_sent") return "Renewal Lease Sent";
+  if (status === "renewal_completed") return "Renewal Completed";
+  if (status === "not_renewing") return "Not Renewing";
+
+  return status.replaceAll("_", " ");
+}
+
+function formatRequestStatus(status: string) {
+  if (status === "open") return "Open";
+  if (status === "tenant_responded") return "Tenant Responded";
+  if (status === "landlord_responded") return "Landlord Responded";
+  if (status === "renewal_sent") return "Renewal Lease Sent";
+  if (status === "renewal_signed") return "Renewal Signed";
+  if (status === "move_out_confirmed") return "Move-Out Confirmed";
+  if (status === "closed") return "Closed";
+  if (status === "cancelled") return "Cancelled";
+
+  return status.replaceAll("_", " ");
 }
 
 function formatMoney(value: number | null) {
@@ -138,8 +166,10 @@ export default function TenantLeaseRenewalPage() {
         tenant_message,
         landlord_message,
         proposed_monthly_rent,
+        proposed_security_deposit,
         proposed_lease_start_date,
         proposed_lease_end_date,
+        renewal_lease_id,
         created_at
       `
       )
@@ -186,25 +216,21 @@ export default function TenantLeaseRenewalPage() {
         ? "tenant_responded"
         : "move_out_confirmed";
 
-    const { data: createdRequest, error } = await supabase
-      .from("lease_renewal_requests")
-      .insert({
-        lease_id: lease.id,
-        property_id: lease.property_id,
-        tenant_id: lease.tenant_id,
-        landlord_id: lease.landlord_id,
-        request_type: requestType,
-        status: nextRequestStatus,
-        current_lease_end_date: lease.lease_end_date,
-        tenant_message:
-          tenantMessage.trim() ||
-          (requestType === "tenant_requests_renewal"
-            ? "Tenant would like to renew this lease."
-            : "Tenant plans to move out when this lease ends."),
-        tenant_responded_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
+    const { error } = await supabase.from("lease_renewal_requests").insert({
+      lease_id: lease.id,
+      property_id: lease.property_id,
+      tenant_id: lease.tenant_id,
+      landlord_id: lease.landlord_id,
+      request_type: requestType,
+      status: nextRequestStatus,
+      current_lease_end_date: lease.lease_end_date,
+      tenant_message:
+        tenantMessage.trim() ||
+        (requestType === "tenant_requests_renewal"
+          ? "Tenant would like to renew this lease."
+          : "Tenant plans to move out when this lease ends."),
+      tenant_responded_at: new Date().toISOString(),
+    });
 
     if (error) {
       setMessage(error.message);
@@ -284,6 +310,10 @@ export default function TenantLeaseRenewalPage() {
     );
   }
 
+  const latestRenewalOffer = renewalRequests.find(
+    (request) => request.request_type === "landlord_offers_renewal"
+  );
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
@@ -340,9 +370,74 @@ export default function TenantLeaseRenewalPage() {
 
             <InfoCard
               label="Renewal Status"
-              value={lease.renewal_status || "not_started"}
+              value={formatRenewalStatus(lease.renewal_status)}
             />
           </section>
+
+          {latestRenewalOffer && (
+            <section className="mt-8 rounded-3xl bg-green-50 p-6 text-green-900 ring-1 ring-green-200">
+              <p className="text-sm font-black uppercase tracking-[0.15em]">
+                Renewal Offer
+              </p>
+
+              <h2 className="mt-2 text-2xl font-black">
+                Your landlord sent renewal terms
+              </h2>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <InfoCard
+                  label="Proposed Rent"
+                  value={formatMoney(latestRenewalOffer.proposed_monthly_rent)}
+                />
+
+                <InfoCard
+                  label="Proposed Deposit"
+                  value={formatMoney(
+                    latestRenewalOffer.proposed_security_deposit
+                  )}
+                />
+
+                <InfoCard
+                  label="Renewal Start"
+                  value={
+                    latestRenewalOffer.proposed_lease_start_date ||
+                    "Not provided"
+                  }
+                />
+
+                <InfoCard
+                  label="Renewal End"
+                  value={
+                    latestRenewalOffer.proposed_lease_end_date ||
+                    "Not provided"
+                  }
+                />
+              </div>
+
+              {latestRenewalOffer.landlord_message && (
+                <div className="mt-5 rounded-2xl bg-white p-5 ring-1 ring-green-100">
+                  <p className="text-sm font-black">Landlord Message</p>
+                  <p className="mt-2 whitespace-pre-wrap leading-7">
+                    {latestRenewalOffer.landlord_message}
+                  </p>
+                </div>
+              )}
+
+              {latestRenewalOffer.renewal_lease_id ? (
+                <Link
+                  href={`/dashboard/tenant/leases/${latestRenewalOffer.renewal_lease_id}`}
+                  className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+                >
+                  Review & Sign Renewal Lease
+                </Link>
+              ) : (
+                <p className="mt-5 rounded-2xl bg-white p-4 font-bold text-green-800 ring-1 ring-green-100">
+                  Your landlord has sent renewal terms. Once they create the
+                  updated renewal lease, it will appear here for signature.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
             <h2 className="text-2xl font-black">Send Your Plan</h2>
@@ -395,7 +490,7 @@ export default function TenantLeaseRenewalPage() {
                       </h3>
 
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                        {request.status}
+                        {formatRequestStatus(request.status)}
                       </span>
                     </div>
 
@@ -415,9 +510,32 @@ export default function TenantLeaseRenewalPage() {
                     )}
 
                     {request.proposed_monthly_rent && (
-                      <p className="mt-3 text-sm font-bold text-slate-500">
-                        Proposed rent: {formatMoney(request.proposed_monthly_rent)}
-                      </p>
+                      <div className="mt-3 rounded-2xl bg-[#f7f4ef] p-4">
+                        <p className="text-sm font-black text-slate-700">
+                          Proposed Terms
+                        </p>
+                        <p className="mt-2 text-sm font-bold text-slate-600">
+                          Rent: {formatMoney(request.proposed_monthly_rent)}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          Deposit:{" "}
+                          {formatMoney(request.proposed_security_deposit)}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          Dates:{" "}
+                          {request.proposed_lease_start_date || "No start"} to{" "}
+                          {request.proposed_lease_end_date || "No end"}
+                        </p>
+                      </div>
+                    )}
+
+                    {request.renewal_lease_id && (
+                      <Link
+                        href={`/dashboard/tenant/leases/${request.renewal_lease_id}`}
+                        className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                      >
+                        Open Renewal Lease
+                      </Link>
                     )}
 
                     <p className="mt-3 text-xs font-bold text-slate-500">

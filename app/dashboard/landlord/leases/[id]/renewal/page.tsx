@@ -72,6 +72,19 @@ function formatMoney(value: number | null) {
   return `$${value.toLocaleString()}`;
 }
 
+function formatRenewalStatus(status: string | null) {
+  if (!status || status === "not_started") return "Not Started";
+  if (status === "plan_requested") return "Plan Requested";
+  if (status === "tenant_wants_to_renew") return "Tenant Wants to Renew";
+  if (status === "tenant_moving_out") return "Tenant Moving Out";
+  if (status === "landlord_offered_renewal") return "Renewal Offered";
+  if (status === "renewal_lease_sent") return "Renewal Lease Sent";
+  if (status === "renewal_completed") return "Renewal Completed";
+  if (status === "not_renewing") return "Not Renewing";
+
+  return status.replaceAll("_", " ");
+}
+
 export default function LandlordLeaseRenewalPage() {
   const params = useParams();
   const leaseId = params.id as string;
@@ -550,9 +563,9 @@ export default function LandlordLeaseRenewalPage() {
             />
 
             <InfoCard
-              label="Renewal Status"
-              value={lease.renewal_status || "not_started"}
-            />
+  label="Renewal Status"
+  value={formatRenewalStatus(lease.renewal_status)}
+/>
           </section>
 
           <section className="mt-8 rounded-3xl bg-[#f7f4ef] p-6">
