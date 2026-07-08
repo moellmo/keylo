@@ -101,6 +101,17 @@ function formatMoneyFromCents(cents: number) {
   })}`;
 }
 
+function getDaysUntilLeaseEnds(leaseEndDate: string | null) {
+  if (!leaseEndDate) return null;
+
+  const today = new Date();
+  const endDate = new Date(`${leaseEndDate}T00:00:00`);
+
+  return Math.ceil(
+    (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
+}
+
 export default function TenantDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -151,11 +162,11 @@ export default function TenantDashboardPage() {
           .select(
             `
             id,
-status,
-screening_status,
-created_at,
-move_in_date,
-property_id,
+            status,
+            screening_status,
+            created_at,
+            move_in_date,
+            property_id,
             properties (
               id,
               title,
@@ -254,9 +265,7 @@ property_id,
       setSavedListings((savedRows || []) as unknown as SavedListing[]);
       setLeases((leaseRows || []) as TenantLease[]);
       setRentCharges((chargeRows || []) as RentCharge[]);
-      setMaintenanceRequests(
-        (maintenanceRows || []) as MaintenanceRequest[]
-      );
+      setMaintenanceRequests((maintenanceRows || []) as MaintenanceRequest[]);
       setLoading(false);
     }
 
@@ -306,10 +315,10 @@ property_id,
   );
 
   const screeningRequests = applications.filter(
-  (application) =>
-    application.screening_status === "requested" ||
-    application.screening_status === "in_progress"
-);
+    (application) =>
+      application.screening_status === "requested" ||
+      application.screening_status === "in_progress"
+  );
 
   const leasesReadyToSign = leases.filter(
     (lease) => lease.lease_status === "sent_to_tenant"
@@ -318,6 +327,15 @@ property_id,
   const completedLeases = leases.filter(
     (lease) => lease.lease_status === "completed"
   );
+
+  const leasesEndingSoon = leases.filter((lease) => {
+    if (!lease.lease_end_date) return false;
+    if (lease.lease_status === "cancelled") return false;
+
+    const daysUntilEnd = getDaysUntilLeaseEnds(lease.lease_end_date);
+
+    return daysUntilEnd !== null && daysUntilEnd >= 0 && daysUntilEnd <= 90;
+  });
 
   const unpaidCharges = rentCharges.filter(
     (charge) => charge.status === "unpaid" || charge.status === "overdue"
@@ -340,6 +358,7 @@ property_id,
   );
 
   const latestLease = leases[0];
+  const leaseEndingSoon = leasesEndingSoon[0];
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
@@ -369,11 +388,11 @@ property_id,
             </Link>
 
             <Link
-  href="/dashboard/notifications"
-  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
->
-  Notifications
-</Link>
+              href="/dashboard/notifications"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
+            >
+              Notifications
+            </Link>
 
             <Link
               href="/dashboard/tenant/maintenance"
@@ -395,7 +414,6 @@ property_id,
             >
               Profile
             </Link>
-
           </div>
         </div>
 
@@ -421,7 +439,7 @@ property_id,
             value={String(leases.length)}
             text={`${leasesReadyToSign.length} ready to sign · ${completedLeases.length} completed`}
             href={latestLease ? `/dashboard/tenant/leases/${latestLease.id}` : undefined}
-            urgent={leasesReadyToSign.length > 0}
+            urgent={leasesReadyToSign.length > 0 || leasesEndingSoon.length > 0}
           />
 
           <DashboardCard
@@ -452,6 +470,17 @@ property_id,
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {leaseEndingSoon && (
+              <ActionCard
+                title="Lease ending soon"
+                text={`Your lease for ${
+                  leaseEndingSoon.property_address || "your rental"
+                } ends on ${leaseEndingSoon.lease_end_date}. Choose whether you want to renew or move out.`}
+                href={`/dashboard/tenant/leases/${leaseEndingSoon.id}/renewal`}
+                button="Renew or Move Out"
+              />
+            )}
+
             {unpaidBalance > 0 && (
               <ActionCard
                 title="Pay rent or deposit"
@@ -461,16 +490,17 @@ property_id,
               />
             )}
 
-{screeningRequests.length > 0 && (
-  <ActionCard
-    title="Approve screening"
-    text={`${screeningRequests.length} application${
-      screeningRequests.length === 1 ? " needs" : "s need"
-    } screening consent.`}
-    href={`/dashboard/tenant/applications/${screeningRequests[0].id}`}
-    button="Review Request"
-  />
-)}
+            {screeningRequests.length > 0 && (
+              <ActionCard
+                title="Approve screening"
+                text={`${screeningRequests.length} application${
+                  screeningRequests.length === 1 ? " needs" : "s need"
+                } screening consent.`}
+                href={`/dashboard/tenant/applications/${screeningRequests[0].id}`}
+                button="Review Request"
+              />
+            )}
+
             {leasesReadyToSign.length > 0 && (
               <ActionCard
                 title="Sign your lease"
@@ -548,12 +578,21 @@ property_id,
                       </p>
                     </div>
 
-                    <Link
-                      href={`/dashboard/tenant/leases/${lease.id}`}
-                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                    >
-                      View Lease
-                    </Link>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <Link
+                        href={`/dashboard/tenant/leases/${lease.id}/renewal`}
+                        className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+                      >
+                        Renewal Plan
+                      </Link>
+
+                      <Link
+                        href={`/dashboard/tenant/leases/${lease.id}`}
+                        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+                      >
+                        View Lease
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>

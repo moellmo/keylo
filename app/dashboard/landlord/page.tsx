@@ -16,10 +16,10 @@ type PropertyWithApplications = {
   rejection_note: string | null;
   created_at: string;
   applications: {
-  id: string;
-  status?: string | null;
-  screening_status?: string | null;
-}[];
+    id: string;
+    status?: string | null;
+    screening_status?: string | null;
+  }[];
 };
 
 type LandlordLease = {
@@ -56,6 +56,21 @@ function formatMoneyFromCents(cents: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function getApplications(listing: PropertyWithApplications) {
+  return listing.applications || [];
+}
+
+function getDaysUntilLeaseEnds(leaseEndDate: string | null) {
+  if (!leaseEndDate) return null;
+
+  const today = new Date();
+  const endDate = new Date(`${leaseEndDate}T00:00:00`);
+
+  return Math.ceil(
+    (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
 }
 
 export default function LandlordDashboardPage() {
@@ -113,11 +128,11 @@ export default function LandlordDashboardPage() {
           status,
           rejection_note,
           created_at,
-          aapplications (
-  id,
-  status,
-  screening_status
-)
+          applications (
+            id,
+            status,
+            screening_status
+          )
         `
         )
         .eq("landlord_id", user.id)
@@ -182,9 +197,7 @@ export default function LandlordDashboardPage() {
       setListings((data || []) as unknown as PropertyWithApplications[]);
       setLeases((leaseRows || []) as LandlordLease[]);
       setRentCharges((chargeRows || []) as RentCharge[]);
-      setMaintenanceRequests(
-        (maintenanceRows || []) as MaintenanceRequest[]
-      );
+      setMaintenanceRequests((maintenanceRows || []) as MaintenanceRequest[]);
       setLoading(false);
     }
 
@@ -257,23 +270,23 @@ export default function LandlordDashboardPage() {
   }
 
   const totalApplications = listings.reduce(
-    (total, listing) => total + listing.applications.length,
+    (total, listing) => total + getApplications(listing).length,
     0
   );
 
   const screeningApprovedApplications = listings.flatMap((listing) =>
-  listing.applications.filter(
-    (application) => application.screening_status === "tenant_approved"
-  )
-);
+    getApplications(listing).filter(
+      (application) => application.screening_status === "tenant_approved"
+    )
+  );
 
-const screeningRequestedApplications = listings.flatMap((listing) =>
-  listing.applications.filter(
-    (application) =>
-      application.screening_status === "requested" ||
-      application.screening_status === "in_progress"
-  )
-);
+  const screeningRequestedApplications = listings.flatMap((listing) =>
+    getApplications(listing).filter(
+      (application) =>
+        application.screening_status === "requested" ||
+        application.screening_status === "in_progress"
+    )
+  );
 
   const publishedListings = listings.filter(
     (listing) => listing.status === "published"
@@ -298,6 +311,17 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
   const completedLeases = leases.filter(
     (lease) => lease.lease_status === "completed"
   );
+
+  const leasesEndingSoon = leases.filter((lease) => {
+    if (!lease.lease_end_date) return false;
+    if (lease.lease_status === "cancelled") return false;
+
+    const daysUntilEnd = getDaysUntilLeaseEnds(lease.lease_end_date);
+
+    return daysUntilEnd !== null && daysUntilEnd >= 0 && daysUntilEnd <= 90;
+  });
+
+  const leaseEndingSoon = leasesEndingSoon[0];
 
   const unpaidCharges = rentCharges.filter(
     (charge) => charge.status === "unpaid" || charge.status === "overdue"
@@ -378,12 +402,11 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
             </Link>
 
             <Link
-  href="/dashboard/notifications"
-  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
->
-  Notifications
-</Link>
-
+              href="/dashboard/notifications"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+            >
+              Notifications
+            </Link>
           </div>
         </div>
 
@@ -426,7 +449,7 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
             value={String(leases.length)}
             text={`${leasesNeedingSignature.length} need signature · ${completedLeases.length} completed`}
             href="#leases"
-            urgent={leasesNeedingSignature.length > 0}
+            urgent={leasesNeedingSignature.length > 0 || leasesEndingSoon.length > 0}
           />
         </section>
 
@@ -458,6 +481,17 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {leaseEndingSoon && (
+              <ActionCard
+                title="Lease ending soon"
+                text={`${leaseEndingSoon.tenant_name || "A tenant"} has a lease ending on ${
+                  leaseEndingSoon.lease_end_date
+                }. Ask their plan or send a renewal offer.`}
+                href={`/dashboard/landlord/leases/${leaseEndingSoon.id}/renewal`}
+                button="Open Renewal Plan"
+              />
+            )}
+
             {leasesNeedingSignature.length > 0 && (
               <ActionCard
                 title="Sign lease"
@@ -490,15 +524,26 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
             )}
 
             {screeningApprovedApplications.length > 0 && (
-  <ActionCard
-    title="Screening approved"
-    text={`${screeningApprovedApplications.length} tenant${
-      screeningApprovedApplications.length === 1 ? " has" : "s have"
-    } approved screening consent.`}
-    href="#listings"
-    button="Review Applicants"
-  />
-)}
+              <ActionCard
+                title="Screening approved"
+                text={`${screeningApprovedApplications.length} tenant${
+                  screeningApprovedApplications.length === 1 ? " has" : "s have"
+                } approved screening consent.`}
+                href="#listings"
+                button="Review Applicants"
+              />
+            )}
+
+            {screeningRequestedApplications.length > 0 && (
+              <ActionCard
+                title="Screening pending"
+                text={`${screeningRequestedApplications.length} tenant screening request${
+                  screeningRequestedApplications.length === 1 ? "" : "s"
+                } still pending.`}
+                href="#listings"
+                button="Review Applicants"
+              />
+            )}
 
             {pendingListings > 0 && (
               <ActionCard
@@ -522,18 +567,19 @@ const screeningRequestedApplications = listings.flatMap((listing) =>
               />
             )}
 
-            {leasesNeedingSignature.length === 0 &&
-unpaidBalance === 0 &&
-urgentMaintenance.length === 0 &&
-pendingListings === 0 &&
-rejectedListings === 0 &&
-screeningApprovedApplications.length === 0 &&
-screeningRequestedApplications.length === 0 && (
+            {leasesEndingSoon.length === 0 &&
+              leasesNeedingSignature.length === 0 &&
+              unpaidBalance === 0 &&
+              urgentMaintenance.length === 0 &&
+              pendingListings === 0 &&
+              rejectedListings === 0 &&
+              screeningApprovedApplications.length === 0 &&
+              screeningRequestedApplications.length === 0 && (
                 <div className="rounded-3xl bg-[#f7f4ef] p-6 md:col-span-2 xl:col-span-4">
                   <h3 className="text-2xl font-black">All caught up</h3>
                   <p className="mt-2 text-slate-600">
-                    No urgent maintenance, unpaid charges, lease signatures, or
-                    listing issues need attention right now.
+                    No urgent maintenance, unpaid charges, lease signatures,
+                    lease renewals, or listing issues need attention right now.
                   </p>
                 </div>
               )}
@@ -672,12 +718,21 @@ screeningRequestedApplications.length === 0 && (
                     </p>
                   </div>
 
-                  <Link
-                    href={`/dashboard/landlord/leases/${lease.id}`}
-                    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                  >
-                    View Lease
-                  </Link>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <Link
+                      href={`/dashboard/landlord/leases/${lease.id}/renewal`}
+                      className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+                    >
+                      Renewal Plan
+                    </Link>
+
+                    <Link
+                      href={`/dashboard/landlord/leases/${lease.id}`}
+                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+                    >
+                      View Lease
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -792,8 +847,8 @@ screeningRequestedApplications.length === 0 && (
                     </p>
 
                     <p className="mt-2 text-sm font-bold text-slate-500">
-                      {listing.applications.length} application
-                      {listing.applications.length === 1 ? "" : "s"}
+                      {getApplications(listing).length} application
+                      {getApplications(listing).length === 1 ? "" : "s"}
                     </p>
 
                     {listing.status === "pending" && (
