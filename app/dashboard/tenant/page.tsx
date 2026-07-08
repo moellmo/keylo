@@ -53,6 +53,20 @@ type TenantLease = {
   created_at: string;
 };
 
+type RentCharge = {
+  id: string;
+  amount_cents: number;
+  status: "unpaid" | "paid" | "overdue" | "waived" | "cancelled";
+  due_date: string;
+};
+
+type MaintenanceRequest = {
+  id: string;
+  status: "open" | "in_progress" | "resolved" | "closed" | "cancelled";
+  priority: "low" | "normal" | "urgent" | "emergency";
+  created_at: string;
+};
+
 function getApplicationProperty(application: TenantApplication) {
   if (Array.isArray(application.properties)) {
     return application.properties[0] || null;
@@ -80,12 +94,23 @@ function formatLeaseStatus(status: string) {
   return status;
 }
 
+function formatMoneyFromCents(cents: number) {
+  return `$${(cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export default function TenantDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [applications, setApplications] = useState<TenantApplication[]>([]);
   const [savedListings, setSavedListings] = useState<SavedListing[]>([]);
   const [leases, setLeases] = useState<TenantLease[]>([]);
+  const [rentCharges, setRentCharges] = useState<RentCharge[]>([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState<
+    MaintenanceRequest[]
+  >([]);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -200,9 +225,37 @@ export default function TenantDashboardPage() {
         return;
       }
 
+      const { data: chargeRows, error: chargesError } = await supabase
+        .from("rent_charges")
+        .select("id, amount_cents, status, due_date")
+        .eq("tenant_id", user.id)
+        .order("due_date", { ascending: true });
+
+      if (chargesError) {
+        setErrorMessage(chargesError.message);
+        setLoading(false);
+        return;
+      }
+
+      const { data: maintenanceRows, error: maintenanceError } = await supabase
+        .from("maintenance_requests")
+        .select("id, status, priority, created_at")
+        .eq("tenant_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (maintenanceError) {
+        setErrorMessage(maintenanceError.message);
+        setLoading(false);
+        return;
+      }
+
       setApplications((applicationRows || []) as unknown as TenantApplication[]);
       setSavedListings((savedRows || []) as unknown as SavedListing[]);
       setLeases((leaseRows || []) as TenantLease[]);
+      setRentCharges((chargeRows || []) as RentCharge[]);
+      setMaintenanceRequests(
+        (maintenanceRows || []) as MaintenanceRequest[]
+      );
       setLoading(false);
     }
 
@@ -243,15 +296,78 @@ export default function TenantDashboardPage() {
     );
   }
 
+  const approvedApplications = applications.filter(
+    (application) => application.status === "approved"
+  );
+
+  const reviewingApplications = applications.filter(
+    (application) => application.status === "reviewing"
+  );
+
+  const leasesReadyToSign = leases.filter(
+    (lease) => lease.lease_status === "sent_to_tenant"
+  );
+
+  const completedLeases = leases.filter(
+    (lease) => lease.lease_status === "completed"
+  );
+
+  const unpaidCharges = rentCharges.filter(
+    (charge) => charge.status === "unpaid" || charge.status === "overdue"
+  );
+
+  const unpaidBalance = unpaidCharges.reduce(
+    (sum, charge) => sum + charge.amount_cents,
+    0
+  );
+
+  const openMaintenance = maintenanceRequests.filter(
+    (request) =>
+      request.status === "open" || request.status === "in_progress"
+  );
+
+  const urgentMaintenance = maintenanceRequests.filter(
+    (request) =>
+      (request.priority === "urgent" || request.priority === "emergency") &&
+      (request.status === "open" || request.status === "in_progress")
+  );
+
+  const latestLease = leases[0];
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <Link href="/" className="text-sm font-bold text-slate-600">
-            ← Back to Home
-          </Link>
+        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <Link href="/" className="text-sm font-bold text-slate-600">
+              ← Back to Home
+            </Link>
+
+            <h1 className="mt-4 text-5xl font-black tracking-tight">
+              Tenant Dashboard
+            </h1>
+
+            <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
+              Track your applications, leases, payments, maintenance requests,
+              saved listings, and rental documents.
+            </p>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/dashboard/tenant/payments"
+              className="rounded-full bg-slate-950 px-5 py-3 text-center text-sm font-black text-white"
+            >
+              Payments
+            </Link>
+
+            <Link
+              href="/dashboard/tenant/maintenance"
+              className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
+            >
+              Maintenance
+            </Link>
+
             <Link
               href="/dashboard/tenant/documents"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
@@ -260,243 +376,210 @@ export default function TenantDashboardPage() {
             </Link>
 
             <Link
-  href="/dashboard/tenant/payments"
-  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
->
-  Payments
-</Link>
-
-<Link
-  href="/dashboard/tenant/maintenance"
-  className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-black text-slate-950"
->
-  Maintenance
-</Link>
-
-            <Link
               href="/dashboard/tenant/profile"
               className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950"
             >
-              Edit Profile
+              Profile
             </Link>
 
             <LogoutButton />
           </div>
         </div>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-            Tenant Dashboard
-          </p>
-
-          <h1 className="mt-3 text-5xl font-black tracking-tight">
-            Your Rental Activity
-          </h1>
-
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-            Track saved rentals, submitted applications, leases, and signing
-            status.
-          </p>
-
-          {errorMessage && (
-            <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-red-700">
-              {errorMessage}
-            </div>
-          )}
-
-          <div className="mt-8 grid gap-5 md:grid-cols-5">
-            <div className="rounded-3xl bg-[#f7f4ef] p-6">
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Applications
-              </p>
-              <p className="mt-3 text-4xl font-black">{applications.length}</p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-6">
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Saved
-              </p>
-              <p className="mt-3 text-4xl font-black">{savedListings.length}</p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-6">
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Leases
-              </p>
-              <p className="mt-3 text-4xl font-black">{leases.length}</p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-6">
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Approved
-              </p>
-              <p className="mt-3 text-4xl font-black">
-                {
-                  applications.filter(
-                    (application) => application.status === "approved"
-                  ).length
-                }
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-[#f7f4ef] p-6">
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                Reviewing
-              </p>
-              <p className="mt-3 text-4xl font-black">
-                {
-                  applications.filter(
-                    (application) => application.status === "reviewing"
-                  ).length
-                }
-              </p>
-            </div>
+        {errorMessage && (
+          <div className="mt-6 rounded-2xl bg-white px-5 py-4 font-bold text-red-700 shadow-sm ring-1 ring-red-200">
+            {errorMessage}
           </div>
-        </div>
+        )}
 
-        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 p-6">
-            <h2 className="text-2xl font-black">Your Leases</h2>
-          </div>
+        <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <DashboardCard
+            title="Amount Due"
+            value={formatMoneyFromCents(unpaidBalance)}
+            text={`${unpaidCharges.length} unpaid charge${
+              unpaidCharges.length === 1 ? "" : "s"
+            }`}
+            href="/dashboard/tenant/payments"
+            urgent={unpaidBalance > 0}
+          />
 
-          {leases.length > 0 ? (
-            <div className="divide-y divide-slate-200">
-              {leases.map((lease) => (
-                <div
-                  key={lease.id}
-                  className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-black">
-                        {lease.property_address || "Lease Agreement"}
-                      </h3>
+          <DashboardCard
+            title="Leases"
+            value={String(leases.length)}
+            text={`${leasesReadyToSign.length} ready to sign · ${completedLeases.length} completed`}
+            href={latestLease ? `/dashboard/tenant/leases/${latestLease.id}` : undefined}
+            urgent={leasesReadyToSign.length > 0}
+          />
 
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                        {formatLeaseStatus(lease.lease_status)}
-                      </span>
-                    </div>
+          <DashboardCard
+            title="Maintenance"
+            value={String(openMaintenance.length)}
+            text={`${urgentMaintenance.length} urgent · ${maintenanceRequests.length} total`}
+            href="/dashboard/tenant/maintenance"
+            urgent={urgentMaintenance.length > 0}
+          />
 
-                    <p className="mt-2 font-bold text-slate-500">
-                      {lease.monthly_rent
-                        ? `$${lease.monthly_rent.toLocaleString()}/mo`
-                        : "Rent not provided"}
-                      {lease.lease_start_date && lease.lease_end_date
-                        ? ` · ${lease.lease_start_date} to ${lease.lease_end_date}`
-                        : ""}
-                    </p>
-
-                    <p className="mt-2 text-sm font-bold text-slate-500">
-                      Landlord: {lease.landlord_name || "Not provided"}
-                    </p>
-                  </div>
-
-                  <Link
-                    href={`/dashboard/tenant/leases/${lease.id}`}
-                    className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                  >
-                    View Lease
-                  </Link>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-8 text-center">
-              <h3 className="text-2xl font-black">No leases yet</h3>
-
-              <p className="mt-3 text-slate-600">
-                When a landlord sends you a lease, it will appear here.
-              </p>
-            </div>
-          )}
+          <DashboardCard
+            title="Applications"
+            value={String(applications.length)}
+            text={`${approvedApplications.length} approved · ${reviewingApplications.length} reviewing`}
+            href="#applications"
+          />
         </section>
 
-        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 p-6">
-            <h2 className="text-2xl font-black">Saved Listings</h2>
+        <section className="mt-8 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                Next Actions
+              </p>
+
+              <h2 className="mt-2 text-3xl font-black">What needs attention</h2>
+            </div>
           </div>
 
-          {savedListings.length > 0 ? (
-            <div className="divide-y divide-slate-200">
-              {savedListings.map((saved) => {
-                const property = getSavedProperty(saved);
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {unpaidBalance > 0 && (
+              <ActionCard
+                title="Pay rent or deposit"
+                text={`${formatMoneyFromCents(unpaidBalance)} currently due.`}
+                href="/dashboard/tenant/payments"
+                button="View Payments"
+              />
+            )}
 
-                return (
+            {leasesReadyToSign.length > 0 && (
+              <ActionCard
+                title="Sign your lease"
+                text={`${leasesReadyToSign.length} lease${
+                  leasesReadyToSign.length === 1 ? " is" : "s are"
+                } ready for signature.`}
+                href={`/dashboard/tenant/leases/${leasesReadyToSign[0].id}`}
+                button="Review Lease"
+              />
+            )}
+
+            <ActionCard
+              title="Submit maintenance"
+              text="Report a repair issue and track landlord updates."
+              href="/dashboard/tenant/maintenance/new"
+              button="New Request"
+            />
+
+            <ActionCard
+              title="Keep profile ready"
+              text="Update your renter profile and upload supporting documents."
+              href="/dashboard/tenant/profile"
+              button="Edit Profile"
+            />
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-8 xl:grid-cols-[1fr_420px]">
+          <div className="rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 p-6">
+              <h2 className="text-2xl font-black">Your Leases</h2>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                {leases.length}
+              </span>
+            </div>
+
+            {leases.length > 0 ? (
+              <div className="divide-y divide-slate-200">
+                {leases.slice(0, 4).map((lease) => (
                   <div
-                    key={saved.id}
+                    key={lease.id}
                     className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
                         <h3 className="text-xl font-black">
-                          {property?.title || "Rental Listing"}
+                          {lease.property_address || "Lease Agreement"}
                         </h3>
 
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                          {property?.status || "unknown"}
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${
+                            lease.lease_status === "sent_to_tenant"
+                              ? "bg-yellow-50 text-yellow-700"
+                              : lease.lease_status === "completed"
+                                ? "bg-green-50 text-green-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {formatLeaseStatus(lease.lease_status)}
                         </span>
                       </div>
 
                       <p className="mt-2 font-bold text-slate-500">
-                        {property
-                          ? `${property.city}, ${
-                              property.state
-                            } · $${property.monthly_rent.toLocaleString()}/mo`
-                          : "Listing details unavailable"}
+                        {lease.monthly_rent
+                          ? `$${lease.monthly_rent.toLocaleString()}/mo`
+                          : "Rent not provided"}
+                        {lease.lease_start_date && lease.lease_end_date
+                          ? ` · ${lease.lease_start_date} to ${lease.lease_end_date}`
+                          : ""}
                       </p>
 
                       <p className="mt-2 text-sm font-bold text-slate-500">
-                        Saved {new Date(saved.created_at).toLocaleDateString()}
+                        Landlord: {lease.landlord_name || "Not provided"}
                       </p>
                     </div>
 
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <Link
-                        href={`/listings/${saved.property_id}`}
-                        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
-                      >
-                        View Listing
-                      </Link>
-
-                      <Link
-                        href={`/apply/${saved.property_id}`}
-                        className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
-                      >
-                        Apply
-                      </Link>
-
-                      <RemoveSavedListingButton savedListingId={saved.id} />
-                    </div>
+                    <Link
+                      href={`/dashboard/tenant/leases/${lease.id}`}
+                      className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+                    >
+                      View Lease
+                    </Link>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-8 text-center">
-              <h3 className="text-2xl font-black">No saved listings yet</h3>
+                ))}
+              </div>
+            ) : (
+              <EmptySection
+                title="No leases yet"
+                text="When a landlord sends you a lease, it will appear here."
+              />
+            )}
+          </div>
 
-              <p className="mt-3 text-slate-600">
-                Save rentals you like so you can come back to them later.
-              </p>
+          <div className="grid gap-8">
+            <MiniPanel
+              title="Payments"
+              value={formatMoneyFromCents(unpaidBalance)}
+              text={`${unpaidCharges.length} unpaid charge${
+                unpaidCharges.length === 1 ? "" : "s"
+              }`}
+              href="/dashboard/tenant/payments"
+              button="Open Payments"
+            />
 
-              <Link
-                href="/listings"
-                className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
-              >
-                Browse Rentals
-              </Link>
-            </div>
-          )}
+            <MiniPanel
+              title="Maintenance"
+              value={`${openMaintenance.length} open`}
+              text={`${urgentMaintenance.length} urgent request${
+                urgentMaintenance.length === 1 ? "" : "s"
+              }`}
+              href="/dashboard/tenant/maintenance"
+              button="Open Maintenance"
+            />
+          </div>
         </section>
 
-        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 p-6">
+        <section
+          id="applications"
+          className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 p-6">
             <h2 className="text-2xl font-black">Your Applications</h2>
+
+            <Link href="/listings" className="text-sm font-black underline">
+              Browse Rentals
+            </Link>
           </div>
 
           {applications.length > 0 ? (
             <div className="divide-y divide-slate-200">
-              {applications.map((application) => {
+              {applications.slice(0, 5).map((application) => {
                 const property = getApplicationProperty(application);
 
                 return (
@@ -552,23 +635,211 @@ export default function TenantDashboardPage() {
               })}
             </div>
           ) : (
-            <div className="p-8 text-center">
-              <h3 className="text-2xl font-black">No applications yet</h3>
+            <EmptySection
+              title="No applications yet"
+              text="Apply to a rental listing to track your application here."
+              href="/listings"
+              button="Browse Rentals"
+            />
+          )}
+        </section>
 
-              <p className="mt-3 text-slate-600">
-                Apply to a rental listing to track your application here.
-              </p>
+        <section className="mt-8 rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="flex items-center justify-between border-b border-slate-200 p-6">
+            <h2 className="text-2xl font-black">Saved Listings</h2>
 
-              <Link
-                href="/listings"
-                className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
-              >
-                Browse Rentals
-              </Link>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+              {savedListings.length}
+            </span>
+          </div>
+
+          {savedListings.length > 0 ? (
+            <div className="divide-y divide-slate-200">
+              {savedListings.slice(0, 4).map((saved) => {
+                const property = getSavedProperty(saved);
+
+                return (
+                  <div
+                    key={saved.id}
+                    className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h3 className="text-xl font-black">
+                          {property?.title || "Rental Listing"}
+                        </h3>
+
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                          {property?.status || "unknown"}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 font-bold text-slate-500">
+                        {property
+                          ? `${property.city}, ${
+                              property.state
+                            } · $${property.monthly_rent.toLocaleString()}/mo`
+                          : "Listing details unavailable"}
+                      </p>
+
+                      <p className="mt-2 text-sm font-bold text-slate-500">
+                        Saved {new Date(saved.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <Link
+                        href={`/listings/${saved.property_id}`}
+                        className="rounded-full bg-slate-950 px-5 py-3 text-center font-black text-white"
+                      >
+                        View
+                      </Link>
+
+                      <Link
+                        href={`/apply/${saved.property_id}`}
+                        className="rounded-full border border-slate-300 bg-white px-5 py-3 text-center font-black"
+                      >
+                        Apply
+                      </Link>
+
+                      <RemoveSavedListingButton savedListingId={saved.id} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            <EmptySection
+              title="No saved listings yet"
+              text="Save rentals you like so you can come back to them later."
+              href="/listings"
+              button="Browse Rentals"
+            />
           )}
         </section>
       </div>
     </main>
+  );
+}
+
+function DashboardCard({
+  title,
+  value,
+  text,
+  href,
+  urgent = false,
+}: {
+  title: string;
+  value: string;
+  text: string;
+  href?: string;
+  urgent?: boolean;
+}) {
+  const card = (
+    <div
+      className={`h-full rounded-3xl p-6 shadow-sm ring-1 transition ${
+        urgent
+          ? "bg-yellow-50 ring-yellow-200"
+          : "bg-white ring-slate-200"
+      } ${href ? "hover:-translate-y-0.5 hover:shadow-md" : ""}`}
+    >
+      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+        {title}
+      </p>
+      <p className="mt-3 text-4xl font-black">{value}</p>
+      <p className="mt-2 text-sm font-bold text-slate-500">{text}</p>
+    </div>
+  );
+
+  if (!href) return card;
+
+  return <Link href={href}>{card}</Link>;
+}
+
+function ActionCard({
+  title,
+  text,
+  href,
+  button,
+}: {
+  title: string;
+  text: string;
+  href: string;
+  button: string;
+}) {
+  return (
+    <div className="rounded-3xl bg-[#f7f4ef] p-5">
+      <h3 className="text-xl font-black">{title}</h3>
+      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-600">
+        {text}
+      </p>
+
+      <Link
+        href={href}
+        className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        {button}
+      </Link>
+    </div>
+  );
+}
+
+function MiniPanel({
+  title,
+  value,
+  text,
+  href,
+  button,
+}: {
+  title: string;
+  value: string;
+  text: string;
+  href: string;
+  button: string;
+}) {
+  return (
+    <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+        {title}
+      </p>
+      <p className="mt-3 text-4xl font-black">{value}</p>
+      <p className="mt-2 font-bold text-slate-500">{text}</p>
+
+      <Link
+        href={href}
+        className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+      >
+        {button}
+      </Link>
+    </div>
+  );
+}
+
+function EmptySection({
+  title,
+  text,
+  href,
+  button,
+}: {
+  title: string;
+  text: string;
+  href?: string;
+  button?: string;
+}) {
+  return (
+    <div className="p-8 text-center">
+      <h3 className="text-2xl font-black">{title}</h3>
+
+      <p className="mt-3 text-slate-600">{text}</p>
+
+      {href && button && (
+        <Link
+          href={href}
+          className="mt-6 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+        >
+          {button}
+        </Link>
+      )}
+    </div>
   );
 }
