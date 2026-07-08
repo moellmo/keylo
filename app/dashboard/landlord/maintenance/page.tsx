@@ -38,6 +38,27 @@ type MaintenanceRequest = {
     | null;
 };
 
+type MaintenancePhotoRow = {
+  maintenance_request_id: string;
+};
+
+type MaintenanceUpdate = {
+  id: string;
+  maintenance_request_id: string;
+  actor_role: "tenant" | "landlord" | "admin";
+  update_type:
+    | "created"
+    | "status_changed"
+    | "note_added"
+    | "photo_added"
+    | "tenant_message"
+    | "landlord_message";
+  old_status: string | null;
+  new_status: string | null;
+  note: string | null;
+  created_at: string;
+};
+
 function getLease(request: MaintenanceRequest) {
   if (Array.isArray(request.leases)) {
     return request.leases[0] || null;
@@ -63,6 +84,16 @@ function formatPriority(priority: string) {
   return priority;
 }
 
+function formatUpdateType(type: string) {
+  if (type === "created") return "Request Created";
+  if (type === "status_changed") return "Status Changed";
+  if (type === "note_added") return "Note Added";
+  if (type === "photo_added") return "Photo Added";
+  if (type === "tenant_message") return "Tenant Update";
+  if (type === "landlord_message") return "Landlord Update";
+  return type;
+}
+
 export default function LandlordMaintenancePage() {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -71,6 +102,10 @@ export default function LandlordMaintenancePage() {
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [savingId, setSavingId] = useState("");
   const [notesById, setNotesById] = useState<Record<string, string>>({});
+  const [photoCounts, setPhotoCounts] = useState<Record<string, number>>({});
+  const [latestUpdates, setLatestUpdates] = useState<
+    Record<string, MaintenanceUpdate>
+  >({});
 
   useEffect(() => {
     loadRequests();
@@ -151,6 +186,69 @@ export default function LandlordMaintenancePage() {
     });
 
     setNotesById(startingNotes);
+
+    const requestIds = rows.map((request) => request.id);
+
+    if (requestIds.length > 0) {
+      const { data: photoRows, error: photoError } = await supabase
+        .from("maintenance_request_photos")
+        .select("maintenance_request_id")
+        .in("maintenance_request_id", requestIds);
+
+      if (photoError) {
+        showError(photoError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const nextPhotoCounts: Record<string, number> = {};
+
+      ((photoRows || []) as MaintenancePhotoRow[]).forEach((photo) => {
+        nextPhotoCounts[photo.maintenance_request_id] =
+          (nextPhotoCounts[photo.maintenance_request_id] || 0) + 1;
+      });
+
+      setPhotoCounts(nextPhotoCounts);
+
+      const { data: updateRows, error: updateError } = await supabase
+        .from("maintenance_request_updates")
+        .select(
+          `
+          id,
+          maintenance_request_id,
+          actor_role,
+          update_type,
+          old_status,
+          new_status,
+          note,
+          created_at
+        `
+        )
+        .in("maintenance_request_id", requestIds)
+        .order("created_at", { ascending: false });
+
+      if (updateError) {
+        showError(updateError.message);
+        setAllowed(false);
+        setLoading(false);
+        return;
+      }
+
+      const nextLatestUpdates: Record<string, MaintenanceUpdate> = {};
+
+      ((updateRows || []) as MaintenanceUpdate[]).forEach((update) => {
+        if (!nextLatestUpdates[update.maintenance_request_id]) {
+          nextLatestUpdates[update.maintenance_request_id] = update;
+        }
+      });
+
+      setLatestUpdates(nextLatestUpdates);
+    } else {
+      setPhotoCounts({});
+      setLatestUpdates({});
+    }
+
     setAllowed(true);
     setLoading(false);
   }
@@ -379,8 +477,8 @@ export default function LandlordMaintenancePage() {
               </h1>
 
               <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-                View tenant repair requests, open photos, update status, and
-                send notes back to tenants.
+                View tenant repair requests, photo counts, latest updates, and
+                full request tracking.
               </p>
             </div>
           </div>
@@ -417,6 +515,8 @@ export default function LandlordMaintenancePage() {
                     setNotesById={setNotesById}
                     onSaveNotes={saveNotes}
                     onUpdateStatus={updateRequestStatus}
+                    photoCount={photoCounts[request.id] || 0}
+                    latestUpdate={latestUpdates[request.id] || null}
                   />
                 ))}
               </div>
@@ -442,6 +542,8 @@ export default function LandlordMaintenancePage() {
                     setNotesById={setNotesById}
                     onSaveNotes={saveNotes}
                     onUpdateStatus={updateRequestStatus}
+                    photoCount={photoCounts[request.id] || 0}
+                    latestUpdate={latestUpdates[request.id] || null}
                   />
                 ))}
               </div>
@@ -486,6 +588,8 @@ function RequestCard({
   setNotesById,
   onSaveNotes,
   onUpdateStatus,
+  photoCount,
+  latestUpdate,
 }: {
   request: MaintenanceRequest;
   savingId: string;
@@ -496,6 +600,8 @@ function RequestCard({
     request: MaintenanceRequest,
     status: MaintenanceRequest["status"]
   ) => void;
+  photoCount: number;
+  latestUpdate: MaintenanceUpdate | null;
 }) {
   const lease = getLease(request);
   const isActive =
@@ -529,6 +635,10 @@ function RequestCard({
                 >
                   {formatStatus(request.status)}
                 </span>
+
+                <span className="rounded-full bg-[#f7f4ef] px-3 py-1 text-xs font-black text-slate-700">
+                  {photoCount} photo{photoCount === 1 ? "" : "s"}
+                </span>
               </div>
 
               {lease?.tenant_name && (
@@ -543,9 +653,44 @@ function RequestCard({
                 </p>
               )}
 
-              <p className="mt-4 whitespace-pre-wrap leading-7 text-slate-700">
+              <p className="mt-4 line-clamp-3 whitespace-pre-wrap leading-7 text-slate-700">
                 {request.description}
               </p>
+
+              {latestUpdate && (
+                <div className="mt-4 rounded-2xl bg-[#f7f4ef] p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-black text-slate-500">
+                      Latest Update
+                    </p>
+
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black uppercase text-slate-500">
+                      {latestUpdate.actor_role}
+                    </span>
+
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black uppercase text-slate-500">
+                      {formatUpdateType(latestUpdate.update_type)}
+                    </span>
+                  </div>
+
+                  {latestUpdate.old_status && latestUpdate.new_status && (
+                    <p className="mt-2 text-sm font-bold text-slate-600">
+                      {formatStatus(latestUpdate.old_status)} →{" "}
+                      {formatStatus(latestUpdate.new_status)}
+                    </p>
+                  )}
+
+                  {latestUpdate.note && (
+                    <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {latestUpdate.note}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs font-bold text-slate-500">
+                    {new Date(latestUpdate.created_at).toLocaleString()}
+                  </p>
+                </div>
+              )}
 
               <p className="mt-4 text-sm font-bold text-slate-500">
                 Submitted {new Date(request.created_at).toLocaleString()}
