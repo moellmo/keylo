@@ -268,60 +268,26 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
         });
 
         const bounds = new google.maps.LatLngBounds();
-        const geocoder = new google.maps.Geocoder();
-        const nextLocations: Record<string, MapLocation> = {
-          ...mapLocations,
-        };
+let markerCount = 0;
 
-        for (const listing of filteredListings) {
-  let lat: number | null =
-    listing.latitude !== null && listing.latitude !== undefined
-      ? Number(listing.latitude)
-      : null;
+for (const listing of filteredListings) {
+  const rawLat = listing.latitude;
+  const rawLng = listing.longitude;
 
-  let lng: number | null =
-    listing.longitude !== null && listing.longitude !== undefined
-      ? Number(listing.longitude)
-      : null;
+  const lat =
+    rawLat !== null && rawLat !== undefined ? Number(rawLat) : null;
+
+  const lng =
+    rawLng !== null && rawLng !== undefined ? Number(rawLng) : null;
 
   if (
-    (lat === null || lng === null) &&
-    nextLocations[listing.id]
+    lat === null ||
+    lng === null ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng)
   ) {
-    lat = nextLocations[listing.id].lat;
-    lng = nextLocations[listing.id].lng;
+    continue;
   }
-
-  if (
-    (lat === null || lng === null) &&
-    getListingAddress(listing)
-  ) {
-    try {
-      const result = await geocoder.geocode({
-        address: getListingAddress(listing),
-      });
-
-      const location = result.results?.[0]?.geometry?.location;
-
-      if (location) {
-        const geocodedLat = location.lat();
-        const geocodedLng = location.lng();
-
-        lat = geocodedLat;
-        lng = geocodedLng;
-
-        nextLocations[listing.id] = {
-          listingId: listing.id,
-          lat: geocodedLat,
-          lng: geocodedLng,
-        };
-      }
-    } catch {
-      // Keep going even if one listing cannot be geocoded.
-    }
-  }
-
-  if (lat === null || lng === null) continue;
 
   const position = { lat, lng };
 
@@ -335,18 +301,11 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
     content: `
       <div style="max-width:220px">
         <strong>${listing.title}</strong>
-        <div style="margin-top:6px">${formatMoney(
-          listing.monthly_rent
-        )}</div>
-        <div style="margin-top:6px">${[
-          listing.city,
-          listing.state,
-        ]
+        <div style="margin-top:6px">${formatMoney(listing.monthly_rent)}</div>
+        <div style="margin-top:6px">${[listing.city, listing.state]
           .filter(Boolean)
           .join(", ")}</div>
-        <a href="/listings/${
-          listing.id
-        }" style="display:inline-block;margin-top:10px;font-weight:700">
+        <a href="/listings/${listing.id}" style="display:inline-block;margin-top:10px;font-weight:700">
           View listing
         </a>
       </div>
@@ -358,9 +317,20 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
   });
 
   bounds.extend(position);
+  markerCount += 1;
 }
 
-        setMapLocations(nextLocations);
+if (markerCount > 0) {
+  map.fitBounds(bounds);
+
+  if (markerCount === 1) {
+    map.setZoom(13);
+  }
+} else {
+  setMapError(
+    "No map-ready listings found yet. Add latitude/longitude to listings."
+  );
+}
 
         if (!bounds.isEmpty()) {
           map.fitBounds(bounds);
