@@ -94,7 +94,6 @@ type ScreeningRequest = {
 type LandlordVerification = {
   id: string;
   landlord_id: string;
-  status: string;
   created_at: string;
 };
 
@@ -325,9 +324,9 @@ export default function AdminPage() {
     }
 
     const { data: verificationRows, error: verificationError } = await supabase
-      .from("landlord_verifications")
-      .select("id, landlord_id, status, created_at")
-      .order("created_at", { ascending: false });
+  .from("landlord_verifications")
+  .select("id, landlord_id, created_at")
+  .order("created_at", { ascending: false });
 
     if (verificationError) {
       setMessage(`Landlord verification error: ${verificationError.message}`);
@@ -437,12 +436,7 @@ export default function AdminPage() {
     (request) => request.status === "tenant_approved"
   );
 
-  const pendingVerifications = landlordVerifications.filter(
-    (verification) =>
-      verification.status === "pending" ||
-      verification.status === "submitted" ||
-      verification.status === "under_review"
-  );
+  const pendingVerifications = landlordVerifications;
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
