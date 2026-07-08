@@ -300,26 +300,57 @@ export default function LandlordTeamPage() {
       return;
     }
 
-    const { error } = await supabase.from("landlord_company_invites").insert({
-      company_id: company.id,
-      email: cleanEmail,
-      role: inviteRole,
-      invited_by: userId,
-      status: "pending",
-      token: makeInviteToken(),
-    });
+    const { data: inviteRow, error } = await supabase
+  .from("landlord_company_invites")
+  .insert({
+    company_id: company.id,
+    email: cleanEmail,
+    role: inviteRole,
+    invited_by: userId,
+    status: "pending",
+    token: makeInviteToken(),
+  })
+  .select("id")
+  .single();
 
-    if (error) {
-      setMessage(error.message);
-      setSaving(false);
-      return;
-    }
+if (error) {
+  setMessage(error.message);
+  setSaving(false);
+  return;
+}
 
-    setInviteEmail("");
-    setInviteRole("manager");
-    setSuccessMessage("Invite created. Next we’ll add the invite acceptance page and email sending.");
-    await loadTeam();
-    setSaving(false);
+const {
+  data: { session },
+} = await supabase.auth.getSession();
+
+const emailResponse = await fetch("/api/company-invites/send", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${session?.access_token || ""}`,
+  },
+  body: JSON.stringify({
+    invite_id: inviteRow.id,
+  }),
+});
+
+const emailResult = await emailResponse.json();
+
+if (!emailResponse.ok) {
+  setMessage(
+    emailResult.error ||
+      "Invite was created, but the email could not be sent."
+  );
+  await loadTeam();
+  setSaving(false);
+  return;
+}
+
+setInviteEmail("");
+setInviteRole("manager");
+setSuccessMessage("Invite created and email sent.");
+await loadTeam();
+setSaving(false);
   }
 
   async function updateMemberRole(memberId: string, nextRole: MembershipRole) {

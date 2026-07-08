@@ -14,6 +14,31 @@ const amenityOptions = [
   "Near transportation",
 ];
 
+type CompanyMembership = {
+  company_id: string;
+  role: string;
+  landlord_companies:
+    | {
+        id: string;
+        name: string;
+      }
+    | {
+        id: string;
+        name: string;
+      }[]
+    | null;
+};
+
+function getCompanyFromMembership(membership: CompanyMembership | null) {
+  if (!membership) return null;
+
+  if (Array.isArray(membership.landlord_companies)) {
+    return membership.landlord_companies[0] || null;
+  }
+
+  return membership.landlord_companies;
+}
+
 export default function NewListingPage() {
   const router = useRouter();
 
@@ -25,6 +50,10 @@ export default function NewListingPage() {
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState("");
   const [verificationStatus, setVerificationStatus] = useState("incomplete");
+
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
 
   const [form, setForm] = useState({
     title: "",
@@ -84,6 +113,45 @@ export default function NewListingPage() {
         return;
       }
 
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from("landlord_company_members")
+        .select(
+          `
+          company_id,
+          role,
+          landlord_companies (
+            id,
+            name
+          )
+        `
+        )
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      if (membershipError) {
+        setMessage(membershipError.message);
+        setLoadingVerification(false);
+        return;
+      }
+
+      const firstMembership =
+        ((membershipRows || [])[0] as unknown as CompanyMembership | undefined) ||
+        null;
+
+      const company = getCompanyFromMembership(firstMembership);
+
+      if (firstMembership && company) {
+        setCompanyId(company.id);
+        setCompanyName(company.name);
+        setCompanyRole(firstMembership.role);
+      } else {
+        setCompanyId(null);
+        setCompanyName("");
+        setCompanyRole("");
+      }
+
       const { data: verificationRow, error: verificationError } = await supabase
         .from("landlord_verifications")
         .select("verification_status")
@@ -113,20 +181,20 @@ export default function NewListingPage() {
     }));
   }
 
- function toggleAmenity(amenity: string) {
-  const exists = form.amenities.includes(amenity);
+  function toggleAmenity(amenity: string) {
+    const exists = form.amenities.includes(amenity);
 
-  if (exists) {
-    updateField(
-      "amenities",
-      form.amenities.filter((item) => item !== amenity)
-    );
-  } else {
-    updateField("amenities", [...form.amenities, amenity]);
+    if (exists) {
+      updateField(
+        "amenities",
+        form.amenities.filter((item) => item !== amenity)
+      );
+    } else {
+      updateField("amenities", [...form.amenities, amenity]);
+    }
   }
-}
 
-function formatStatus(status: string) {
+  function formatStatus(status: string) {
     if (status === "pending_review") return "Pending Review";
     if (status === "incomplete") return "Incomplete";
     if (status === "verified") return "Verified";
@@ -136,7 +204,9 @@ function formatStatus(status: string) {
   }
 
   function canSubmitListing() {
-    return role === "admin" || verificationStatus === "verified";
+    if (role === "admin") return true;
+
+    return verificationStatus === "verified" && !!companyId;
   }
 
   async function saveListing() {
@@ -161,9 +231,17 @@ function formatStatus(status: string) {
       return;
     }
 
-    if (!canSubmitListing()) {
+    if (role !== "admin" && verificationStatus !== "verified") {
       setMessage(
         "Landlord verification is required before submitting a listing for review."
+      );
+      setSaving(false);
+      return;
+    }
+
+    if (role !== "admin" && !companyId) {
+      setMessage(
+        "Please create your landlord company before submitting a listing."
       );
       setSaving(false);
       return;
@@ -173,6 +251,7 @@ function formatStatus(status: string) {
       .from("properties")
       .insert({
         landlord_id: userId,
+        landlord_company_id: companyId,
         title: form.title,
         monthly_rent: Number(form.monthly_rent),
         available_date: form.available_date || null,
@@ -255,9 +334,11 @@ function formatStatus(status: string) {
 
   if (loadingVerification) {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] px-6 py-10 text-slate-950">
+      <main className="min-h-screen bg-[#f7f4ef] px-4 py-8 text-slate-950 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-3xl font-black">Loading listing form...</h1>
+          <h1 className="text-2xl font-black sm:text-3xl">
+            Loading listing form...
+          </h1>
         </div>
       </main>
     );
@@ -267,7 +348,7 @@ function formatStatus(status: string) {
 
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <Link
           href="/dashboard/landlord"
           className="text-sm font-bold text-slate-600"
@@ -275,7 +356,7 @@ function formatStatus(status: string) {
           ← Back to Landlord Dashboard
         </Link>
 
-        <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
           <div className="border-b border-slate-200 pb-6">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
               Landlord Dashboard
@@ -287,24 +368,59 @@ function formatStatus(status: string) {
                   Post a Rental Listing
                 </h1>
 
-                <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
+                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
                   Add the rental details tenants need before applying.
                 </p>
               </div>
 
-              <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
-                Verification: {formatStatus(verificationStatus)}
-              </span>
+              <div className="grid gap-2">
+                <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                  Verification: {formatStatus(verificationStatus)}
+                </span>
+
+                {role === "landlord" && companyName && (
+                  <span className="w-fit rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
+                    Company: {companyName}
+                  </span>
+                )}
+
+                {role === "landlord" && companyRole && (
+                  <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-sm font-black capitalize text-slate-700">
+                    Role: {companyRole}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {!verified && (
+          {role !== "admin" && !companyId && (
+            <div className="mt-6 rounded-3xl bg-blue-50 p-6 ring-1 ring-blue-200">
+              <h2 className="text-2xl font-black text-blue-900">
+                Company Required
+              </h2>
+
+              <p className="mt-3 font-bold leading-7 text-blue-800">
+                Create your landlord company before posting listings. Listings
+                will be connected to your company so team members can help manage
+                them later.
+              </p>
+
+              <Link
+                href="/dashboard/landlord/company"
+                className="mt-5 inline-flex rounded-full bg-slate-950 px-6 py-3 font-black text-white"
+              >
+                Create Company
+              </Link>
+            </div>
+          )}
+
+          {role !== "admin" && verificationStatus !== "verified" && (
             <div className="mt-6 rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-200">
               <h2 className="text-2xl font-black text-amber-900">
                 Verification Required
               </h2>
 
-              <p className="mt-3 leading-7 font-bold text-amber-800">
+              <p className="mt-3 font-bold leading-7 text-amber-800">
                 You need to complete landlord verification before submitting a
                 listing for review. You can upload your ID, proof of ownership,
                 tax bill, utility bill, or management agreement.
@@ -541,7 +657,7 @@ function formatStatus(status: string) {
             <section>
               <h2 className="text-2xl font-black">Photos</h2>
 
-              <div className="mt-5 rounded-3xl border-2 border-dashed border-slate-300 bg-[#f7f4ef] p-8 text-center">
+              <div className="mt-5 rounded-3xl border-2 border-dashed border-slate-300 bg-[#f7f4ef] p-5 text-center sm:p-8">
                 <p className="text-lg font-black">Upload property photos</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   Select one or more images. These will upload when you save the
@@ -556,7 +672,7 @@ function formatStatus(status: string) {
                     const selectedFiles = Array.from(e.target.files || []);
                     setPhotos(selectedFiles);
                   }}
-                  className="mt-5 rounded-2xl bg-white p-3 text-sm font-bold"
+                  className="mt-5 max-w-full rounded-2xl bg-white p-3 text-sm font-bold"
                 />
 
                 {photos.length > 0 && (
@@ -594,7 +710,16 @@ function formatStatus(status: string) {
                 Cancel
               </Link>
 
-              {!verified && (
+              {role !== "admin" && !companyId && (
+                <Link
+                  href="/dashboard/landlord/company"
+                  className="rounded-full border border-blue-300 bg-blue-50 px-6 py-3 text-center font-black text-blue-900"
+                >
+                  Create Company
+                </Link>
+              )}
+
+              {role !== "admin" && verificationStatus !== "verified" && (
                 <Link
                   href="/dashboard/landlord/verification"
                   className="rounded-full border border-amber-300 bg-amber-50 px-6 py-3 text-center font-black text-amber-900"
