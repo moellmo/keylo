@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import SaveListingButton from "./SaveListingButton";
 import LandlordScoreOnListing from "@/components/LandlordScoreOnListing";
+import PhotoGallery from "./PhotoGallery";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -182,7 +183,7 @@ export default async function ListingDetailPage({
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
   );
 
-  const mainPhoto = photos[0];
+
   const locationLine = getLocationLine(property);
   const neighborhood = cleanNeighborhood(property.city, property.neighborhood);
   const landlordDisplayName =
@@ -202,45 +203,7 @@ export default async function ListingDetailPage({
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_390px] lg:items-start">
           <section className="min-w-0">
-            <div className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-              {mainPhoto ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={mainPhoto.photo_url}
-                    alt={property.title}
-                    className="h-[280px] w-full object-cover sm:h-[420px] lg:h-[500px]"
-                  />
-                </>
-              ) : (
-                <div className="flex h-[280px] items-center justify-center bg-gradient-to-br from-slate-200 to-slate-100 sm:h-[420px] lg:h-[500px]">
-                  <div className="text-center">
-                    <p className="text-5xl font-black text-slate-300">K</p>
-                    <p className="mt-3 text-sm font-black uppercase tracking-[0.18em] text-slate-500">
-                      Photos coming soon
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {photos.length > 1 && (
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {photos.slice(1, 5).map((photo, index) => (
-                  <div
-                    key={`${photo.photo_url}-${index}`}
-                    className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo.photo_url}
-                      alt={`${property.title} photo ${index + 2}`}
-                      className="h-28 w-full object-cover sm:h-32"
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            <PhotoGallery photos={photos} title={property.title} />
 
             <div className="mt-6 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
