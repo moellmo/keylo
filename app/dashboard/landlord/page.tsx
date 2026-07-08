@@ -146,48 +146,45 @@ export default function LandlordDashboardPage() {
 
       let companyId: string | null = null;
 
-      if (profile?.role === "landlord") {
-        const { data: membershipRows, error: membershipError } = await supabase
-          .from("landlord_company_members")
-          .select(
-            `
-            company_id,
-            role,
-            landlord_companies (
-              id,
-              name
-            )
-          `
-          )
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .order("created_at", { ascending: true })
-          .limit(1);
+const { data: membershipRows, error: membershipError } = await supabase
+  .from("landlord_company_members")
+  .select(
+    `
+    company_id,
+    role,
+    landlord_companies (
+      id,
+      name
+    )
+  `
+  )
+  .eq("user_id", user.id)
+  .eq("status", "active")
+  .order("created_at", { ascending: true })
+  .limit(1);
 
-        if (membershipError) {
-          setErrorMessage(membershipError.message);
-          setLoading(false);
-          return;
-        }
+if (membershipError) {
+  setErrorMessage(membershipError.message);
+  setLoading(false);
+  return;
+}
 
-        const firstMembership =
-          ((membershipRows || [])[0] as unknown as
-            | CompanyMembership
-            | undefined) || null;
+const firstMembership =
+  ((membershipRows || [])[0] as unknown as CompanyMembership | undefined) ||
+  null;
 
-        const company = getCompanyFromMembership(firstMembership);
+const company = getCompanyFromMembership(firstMembership);
 
-        if (firstMembership && company) {
-          companyId = company.id;
-          setCompanyName(company.name);
-          setCompanyRole(firstMembership.role);
-          setHasCompany(true);
-        } else {
-          setCompanyName("");
-          setCompanyRole("");
-          setHasCompany(false);
-        }
-      }
+if (firstMembership && company) {
+  companyId = company.id;
+  setCompanyName(company.name);
+  setCompanyRole(firstMembership.role);
+  setHasCompany(true);
+} else {
+  setCompanyName("");
+  setCompanyRole("");
+  setHasCompany(false);
+}
 
       let propertiesQuery = supabase
         .from("properties")
