@@ -532,23 +532,34 @@ export default function ListingsClient({ listings }: ListingsClientProps) {
       </div>
 
       {viewMode === "map" ? (
-        <section className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-  <div className="min-w-0 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-[#ded6c8]">
-    <div ref={mapRef} className="h-[520px] w-full" />
+        <section className="mt-8">
+  <div className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-[#ded6c8]">
+    <div ref={mapRef} className="h-[420px] w-full sm:h-[560px]" />
   </div>
 
-  <div className="grid min-w-0 gap-4 overflow-y-auto pr-1 xl:max-h-[520px]">
-            {mapError && (
-              <div className="rounded-3xl bg-red-50 p-5 font-bold text-red-700 ring-1 ring-red-200">
-                {mapError}
-              </div>
-            )}
+  {mapError && (
+    <div className="mt-5 rounded-3xl bg-red-50 p-5 font-bold text-red-700 ring-1 ring-red-200">
+      {mapError}
+    </div>
+  )}
 
-            {filteredListings.map((listing) => (
-              <SmallListingCard key={listing.id} listing={listing} />
-            ))}
-          </div>
-        </section>
+  <div className="mt-6 flex items-center justify-between gap-3">
+    <div>
+      <h2 className="text-2xl font-black tracking-[-0.03em]">
+        Rentals on this map
+      </h2>
+      <p className="mt-1 text-sm font-bold text-[#6f7b91]">
+        Click a rental or marker to view details.
+      </p>
+    </div>
+  </div>
+
+  <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    {filteredListings.map((listing) => (
+      <SmallListingCard key={listing.id} listing={listing} />
+    ))}
+  </div>
+</section>
       ) : filteredListings.length > 0 ? (
         <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {filteredListings.map((listing) => (
@@ -662,40 +673,44 @@ function SmallListingCard({ listing }: { listing: Property }) {
   return (
     <Link
       href={`/listings/${listing.id}`}
-      className="min-w-0 overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#ded6c8] transition hover:-translate-y-0.5 hover:shadow-md"
+      className="group overflow-hidden rounded-[1.5rem] bg-white shadow-sm ring-1 ring-[#ded6c8] transition hover:-translate-y-0.5 hover:shadow-md"
     >
-      <div className="grid grid-cols-[92px_minmax(0,1fr)] sm:grid-cols-[110px_minmax(0,1fr)]">
-        <div className="h-full min-h-[118px] bg-[#e8ddca]">
-          {firstPhoto ? (
-            <img
-              src={firstPhoto}
-              alt={listing.title}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xl font-black text-[#07101f]">
-              K
-            </div>
-          )}
+      <div className="relative h-36 overflow-hidden bg-[#e8ddca]">
+        {firstPhoto ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={firstPhoto}
+            alt={listing.title}
+            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-2xl font-black text-[#07101f]">
+            K
+          </div>
+        )}
+
+        <div className="absolute bottom-3 right-3 rounded-full bg-[#07101f] px-3 py-1.5 text-xs font-black text-white">
+          {formatMoney(listing.monthly_rent)}
         </div>
+      </div>
 
-        <div className="min-w-0 p-4">
-          <h3 className="line-clamp-2 font-black leading-5">
-            {listing.title}
-          </h3>
+      <div className="p-4">
+        <h3 className="line-clamp-2 min-h-[40px] font-black leading-5 text-[#07101f]">
+          {listing.title}
+        </h3>
 
-          <p className="mt-1 truncate text-sm font-bold text-[#63708a]">
-            {[listing.city, listing.state].filter(Boolean).join(", ")}
-          </p>
+        <p className="mt-2 truncate text-sm font-bold text-[#63708a]">
+          {[listing.city, listing.state].filter(Boolean).join(", ")}
+        </p>
 
-          <p className="mt-2 text-sm font-black">
-            {formatMoney(listing.monthly_rent)}
-          </p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-[#6f7b91]">
+          <span className="rounded-full bg-[#f7f1e7] px-3 py-1.5">
+            {formatRoom(listing.bedrooms, "bed", "beds")}
+          </span>
 
-          <p className="mt-2 truncate text-xs font-bold text-[#6f7b91]">
-            {formatRoom(listing.bedrooms, "bed", "beds")} ·{" "}
+          <span className="rounded-full bg-[#f7f1e7] px-3 py-1.5">
             {formatRoom(listing.bathrooms, "bath", "baths")}
-          </p>
+          </span>
         </div>
       </div>
     </Link>
