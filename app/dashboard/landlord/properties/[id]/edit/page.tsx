@@ -81,32 +81,19 @@ async function loadGoogleMaps() {
     throw new Error("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.");
   }
 
-  if (window.google?.maps?.places) {
-    return;
-  }
-
   if (window.google?.maps?.importLibrary) {
-    await window.google.maps.importLibrary("places");
     return;
   }
 
   if (window.keyloGoogleMapsLoading) {
     await window.keyloGoogleMapsLoading;
-
-    if (window.google?.maps?.places) {
-      return;
-    }
-
-    if (window.google?.maps?.importLibrary) {
-      await window.google.maps.importLibrary("places");
-      return;
-    }
+    return;
   }
 
   window.keyloGoogleMapsLoading = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
 
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&v=weekly`;
     script.async = true;
     script.defer = true;
 
@@ -117,20 +104,20 @@ async function loadGoogleMaps() {
   });
 
   await window.keyloGoogleMapsLoading;
-
-  if (window.google?.maps?.importLibrary && !window.google?.maps?.places) {
-    await window.google.maps.importLibrary("places");
-  }
 }
 
-function getAddressComponent(place: any, type: string, shortName = false) {
-  const component = place.address_components?.find((item: any) =>
-    item.types?.includes(type)
-  );
+function getPlaceComponent(place: any, type: string, shortName = false) {
+  const components = place.addressComponents || place.address_components || [];
+
+  const component = components.find((item: any) => item.types?.includes(type));
 
   if (!component) return "";
 
-  return shortName ? component.short_name || "" : component.long_name || "";
+  if (shortName) {
+    return component.shortText || component.short_name || "";
+  }
+
+  return component.longText || component.long_name || "";
 }
 
 async function geocodeTypedAddress(form: {
@@ -192,7 +179,7 @@ export default function EditListingPage() {
   const params = useParams();
   const router = useRouter();
   const propertyId = params.id as string;
-  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const autocompleteContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -206,7 +193,7 @@ export default function EditListingPage() {
     null
   );
   const [addressHelper, setAddressHelper] = useState(
-    "Start typing and select an address from Google, or type it manually."
+    "Search with Google, or type the address manually below."
   );
 
   const [form, setForm] = useState({
@@ -236,90 +223,117 @@ export default function EditListingPage() {
   useEffect(() => {
     if (loading || !allowed) return;
 
-    let autocomplete: any = null;
+    let autocompleteElement: any = null;
     let listener: any = null;
 
     async function setupAutocomplete() {
-      if (!addressInputRef.current) return;
+      if (!autocompleteContainerRef.current) return;
 
       try {
         await loadGoogleMaps();
 
         const google = window.google;
 
-        if (!google?.maps?.places || !addressInputRef.current) {
+        if (!google?.maps?.importLibrary) {
           setAddressHelper(
-            "Google address autocomplete is not available. You can still type the address manually."
+            "Google address search is not available. You can still type the address manually."
           );
           return;
         }
 
-        autocomplete = new google.maps.places.Autocomplete(
-          addressInputRef.current,
-          {
-            types: ["address"],
-            fields: ["address_components", "formatted_address", "geometry"],
+        const placesLibrary = await google.maps.importLibrary("places");
+        const PlaceAutocompleteElement =
+          placesLibrary.PlaceAutocompleteElement ||
+          google.maps.places?.PlaceAutocompleteElement;
+
+        if (!PlaceAutocompleteElement) {
+          setAddressHelper(
+            "Google address search is not available. You can still type the address manually."
+          );
+          return;
+        }
+
+        autocompleteContainerRef.current.innerHTML = "";
+
+        autocompleteElement = new PlaceAutocompleteElement();
+        autocompleteElement.placeholder = "Search for the property address";
+        autocompleteElement.style.width = "100%";
+        autocompleteElement.style.display = "block";
+
+        autocompleteContainerRef.current.appendChild(autocompleteElement);
+
+        listener = autocompleteElement.addEventListener(
+          "gmp-select",
+          async (event: any) => {
+            try {
+              const placePrediction = event.placePrediction;
+              const place = placePrediction.toPlace();
+
+              await place.fetchFields({
+                fields: ["addressComponents", "formattedAddress", "location"],
+              });
+
+              if (!place?.location) {
+                setAddressHelper(
+                  "Please select an address from Google, or type it manually below."
+                );
+                return;
+              }
+
+              const streetNumber = getPlaceComponent(place, "street_number");
+              const route = getPlaceComponent(place, "route");
+
+              const city =
+                getPlaceComponent(place, "locality") ||
+                getPlaceComponent(place, "postal_town") ||
+                getPlaceComponent(place, "sublocality") ||
+                getPlaceComponent(place, "administrative_area_level_2");
+
+              const state = getPlaceComponent(
+                place,
+                "administrative_area_level_1",
+                true
+              );
+
+              const zipCode = getPlaceComponent(place, "postal_code");
+
+              const neighborhood =
+                getPlaceComponent(place, "neighborhood") ||
+                getPlaceComponent(place, "sublocality") ||
+                "";
+
+              const latitude = place.location.lat();
+              const longitude = place.location.lng();
+
+              setForm((current) => ({
+                ...current,
+                street_address:
+                  [streetNumber, route].filter(Boolean).join(" ") ||
+                  place.formattedAddress ||
+                  current.street_address,
+                city: city || current.city,
+                state: state || current.state,
+                zip_code: zipCode || current.zip_code,
+                neighborhood: neighborhood || current.neighborhood,
+                latitude,
+                longitude,
+              }));
+
+              setAddressHelper(
+                "Address selected. Map location will be saved automatically."
+              );
+            } catch {
+              setAddressHelper(
+                "Could not read that address. You can still type the address manually below."
+              );
+            }
           }
         );
-
-        listener = autocomplete.addListener("place_changed", () => {
-          const place = autocomplete.getPlace();
-
-          if (!place?.geometry?.location) {
-            setAddressHelper(
-              "Please select an address from the dropdown, or type it manually and Keylo will try to map it when you save."
-            );
-            return;
-          }
-
-          const streetNumber = getAddressComponent(place, "street_number");
-          const route = getAddressComponent(place, "route");
-
-          const city =
-            getAddressComponent(place, "locality") ||
-            getAddressComponent(place, "postal_town") ||
-            getAddressComponent(place, "sublocality") ||
-            getAddressComponent(place, "administrative_area_level_2");
-
-          const state = getAddressComponent(
-            place,
-            "administrative_area_level_1",
-            true
-          );
-
-          const zipCode = getAddressComponent(place, "postal_code");
-
-          const neighborhood =
-            getAddressComponent(place, "neighborhood") ||
-            getAddressComponent(place, "sublocality") ||
-            "";
-
-          const latitude = place.geometry.location.lat();
-          const longitude = place.geometry.location.lng();
-
-          setForm((current) => ({
-            ...current,
-            street_address:
-              [streetNumber, route].filter(Boolean).join(" ") ||
-              place.formatted_address ||
-              current.street_address,
-            city: city || current.city,
-            state: state || current.state,
-            zip_code: zipCode || current.zip_code,
-            neighborhood: neighborhood || current.neighborhood,
-            latitude,
-            longitude,
-          }));
-
-          setAddressHelper(
-            "Address selected. Map location will be saved automatically."
-          );
-        });
       } catch (error) {
         setAddressHelper(
           error instanceof Error
             ? `${error.message} You can still type the address manually.`
-            : "Google address autocomplete could not load. You can still type the address manually."
+            : "Google address search could not load. You can still type the address manually."
         );
       }
     }
@@ -327,8 +341,10 @@ export default function EditListingPage() {
     setupAutocomplete();
 
     return () => {
-      if (listener?.remove) {
-        listener.remove();
+      if (listener?.remove) listener.remove();
+
+      if (autocompleteContainerRef.current) {
+        autocompleteContainerRef.current.innerHTML = "";
       }
     };
   }, [loading, allowed]);
@@ -451,7 +467,7 @@ export default function EditListingPage() {
       setAddressHelper("This listing already has a saved map location.");
     } else {
       setAddressHelper(
-        "Start typing and select an address from Google, or type it manually."
+        "Search with Google, or type the address manually below."
       );
     }
 
@@ -859,16 +875,12 @@ export default function EditListingPage() {
               <div className="mt-5 grid gap-5 md:grid-cols-2">
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-black">
-                    Street address
+                    Google address search
                   </label>
-                  <input
-                    ref={addressInputRef}
-                    value={form.street_address}
-                    onChange={(e) =>
-                      updateAddressField("street_address", e.target.value)
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
-                    placeholder="Start typing an address..."
+
+                  <div
+                    ref={autocompleteContainerRef}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus-within:border-slate-500"
                   />
 
                   <p
@@ -880,6 +892,20 @@ export default function EditListingPage() {
                   >
                     {addressHelper}
                   </p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-black">
+                    Street address
+                  </label>
+                  <input
+                    value={form.street_address}
+                    onChange={(e) =>
+                      updateAddressField("street_address", e.target.value)
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-500"
+                    placeholder="123 Main Street"
+                  />
                 </div>
 
                 <div>
