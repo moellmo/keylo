@@ -62,7 +62,7 @@ export default function PhotoGallery({
             <button
               type="button"
               onClick={goPrevious}
-              className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-black text-slate-950 shadow-sm ring-1 ring-slate-200 transition hover:bg-white"
+              className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-2xl font-black text-slate-950 shadow-sm ring-1 ring-slate-200 transition hover:bg-white"
               aria-label="Previous photo"
             >
               ‹
@@ -71,7 +71,7 @@ export default function PhotoGallery({
             <button
               type="button"
               onClick={goNext}
-              className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-black text-slate-950 shadow-sm ring-1 ring-slate-200 transition hover:bg-white"
+              className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-2xl font-black text-slate-950 shadow-sm ring-1 ring-slate-200 transition hover:bg-white"
               aria-label="Next photo"
             >
               ›
@@ -85,26 +85,28 @@ export default function PhotoGallery({
       </div>
 
       {sortedPhotos.length > 1 && (
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {sortedPhotos.map((photo, index) => (
-            <button
-              key={`${photo.photo_url}-${index}`}
-              type="button"
-              onClick={() => setActiveIndex(index)}
-              className={`overflow-hidden rounded-2xl bg-white shadow-sm ring-2 transition ${
-                activeIndex === index
-                  ? "ring-slate-950"
-                  : "ring-slate-200 hover:ring-slate-400"
-              }`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={photo.photo_url}
-                alt={`${title} thumbnail ${index + 1}`}
-                className="h-28 w-full object-cover sm:h-32"
-              />
-            </button>
-          ))}
+        <div className="mt-4 overflow-x-auto pb-2">
+          <div className="flex w-max gap-3">
+            {sortedPhotos.map((photo, index) => (
+              <button
+                key={`${photo.photo_url}-${index}`}
+                type="button"
+                onClick={() => setActiveIndex(index)}
+                className={`h-24 w-36 flex-shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-2 transition sm:h-28 sm:w-44 ${
+                  activeIndex === index
+                    ? "ring-slate-950"
+                    : "ring-slate-200 hover:ring-slate-400"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photo.photo_url}
+                  alt={`${title} thumbnail ${index + 1}`}
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
