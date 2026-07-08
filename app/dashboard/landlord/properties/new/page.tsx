@@ -48,19 +48,33 @@ function getCompanyFromMembership(membership: CompanyMembership | null) {
   return membership.landlord_companies;
 }
 
-function loadGoogleMaps() {
+async function loadGoogleMaps() {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   if (!apiKey) {
-    return Promise.reject(new Error("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY."));
+    throw new Error("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.");
   }
 
   if (window.google?.maps?.places) {
-    return Promise.resolve();
+    return;
+  }
+
+  if (window.google?.maps?.importLibrary) {
+    await window.google.maps.importLibrary("places");
+    return;
   }
 
   if (window.keyloGoogleMapsLoading) {
-    return window.keyloGoogleMapsLoading;
+    await window.keyloGoogleMapsLoading;
+
+    if (window.google?.maps?.places) {
+      return;
+    }
+
+    if (window.google?.maps?.importLibrary) {
+      await window.google.maps.importLibrary("places");
+      return;
+    }
   }
 
   window.keyloGoogleMapsLoading = new Promise<void>((resolve, reject) => {
@@ -76,7 +90,11 @@ function loadGoogleMaps() {
     document.head.appendChild(script);
   });
 
-  return window.keyloGoogleMapsLoading;
+  await window.keyloGoogleMapsLoading;
+
+  if (window.google?.maps?.importLibrary && !window.google?.maps?.places) {
+    await window.google.maps.importLibrary("places");
+  }
 }
 
 function getAddressComponent(place: any, type: string, shortName = false) {
@@ -89,6 +107,51 @@ function getAddressComponent(place: any, type: string, shortName = false) {
   return shortName ? component.short_name || "" : component.long_name || "";
 }
 
+async function geocodeTypedAddress(form: {
+  street_address: string;
+  city: string;
+  state: string;
+  zip_code: string;
+}) {
+  const address = [
+    form.street_address,
+    form.city,
+    form.state,
+    form.zip_code,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  if (!address) {
+    return { latitude: null, longitude: null };
+  }
+
+  try {
+    await loadGoogleMaps();
+
+    const google = window.google;
+
+    if (!google?.maps) {
+      return { latitude: null, longitude: null };
+    }
+
+    const geocoder = new google.maps.Geocoder();
+    const result = await geocoder.geocode({ address });
+    const location = result.results?.[0]?.geometry?.location;
+
+    if (!location) {
+      return { latitude: null, longitude: null };
+    }
+
+    return {
+      latitude: location.lat(),
+      longitude: location.lng(),
+    };
+  } catch {
+    return { latitude: null, longitude: null };
+  }
+}
+
 export default function NewListingPage() {
   const router = useRouter();
   const addressInputRef = useRef<HTMLInputElement | null>(null);
@@ -98,7 +161,7 @@ export default function NewListingPage() {
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [addressHelper, setAddressHelper] = useState(
-    "Start typing and select an address from Google to place this rental on the map."
+    "Start typing and select an address from Google, or type it manually."
   );
 
   const [userId, setUserId] = useState("");
@@ -242,6 +305,8 @@ export default function NewListingPage() {
   }, []);
 
   useEffect(() => {
+    if (loadingVerification) return;
+
     let autocomplete: any = null;
     let listener: any = null;
 
@@ -254,7 +319,9 @@ export default function NewListingPage() {
         const google = window.google;
 
         if (!google?.maps?.places || !addressInputRef.current) {
-          setAddressHelper("Google address autocomplete is not available.");
+          setAddressHelper(
+            "Google address autocomplete is not available. You can still type the address manually."
+          );
           return;
         }
 
@@ -271,7 +338,7 @@ export default function NewListingPage() {
 
           if (!place?.geometry?.location) {
             setAddressHelper(
-              "Please select an address from the dropdown so Keylo can place it on the map."
+              "Please select an address from the dropdown, or type it manually and Keylo will try to map it when you save."
             );
             return;
           }
@@ -314,16 +381,14 @@ export default function NewListingPage() {
           }));
 
           setAddressHelper(
-            `Map location saved: ${latitude.toFixed(5)}, ${longitude.toFixed(
-              5
-            )}`
+            "Address selected. Map location will be saved automatically."
           );
         });
       } catch (error) {
         setAddressHelper(
           error instanceof Error
-            ? error.message
-            : "Google address autocomplete could not load."
+            ? `${error.message} You can still type the address manually.`
+            : "Google address autocomplete could not load. You can still type the address manually."
         );
       }
     }
@@ -335,7 +400,7 @@ export default function NewListingPage() {
         listener.remove();
       }
     };
-  }, []);
+  }, [loadingVerification]);
 
   function updateField(
     field: keyof typeof form,
@@ -356,7 +421,7 @@ export default function NewListingPage() {
     }));
 
     setAddressHelper(
-      "Select an address from Google to save the map location for this listing."
+      "Address entered manually. Keylo will try to map it when you save."
     );
   }
 
@@ -432,6 +497,21 @@ export default function NewListingPage() {
       return;
     }
 
+    let latitudeToSave = form.latitude;
+    let longitudeToSave = form.longitude;
+
+    if (latitudeToSave === null || longitudeToSave === null) {
+      const geocoded = await geocodeTypedAddress({
+        street_address: form.street_address,
+        city: form.city,
+        state: form.state,
+        zip_code: form.zip_code,
+      });
+
+      latitudeToSave = geocoded.latitude;
+      longitudeToSave = geocoded.longitude;
+    }
+
     const { data: newProperty, error } = await supabase
       .from("properties")
       .insert({
@@ -447,8 +527,8 @@ export default function NewListingPage() {
         state: form.state,
         zip_code: form.zip_code,
         neighborhood: form.neighborhood,
-        latitude: form.latitude,
-        longitude: form.longitude,
+        latitude: latitudeToSave,
+        longitude: longitudeToSave,
         description: form.description,
         pet_policy: form.pet_policy,
         amenities: form.amenities,
@@ -881,6 +961,7 @@ export default function NewListingPage() {
                         key={`${photo.name}-${index}`}
                         className="overflow-hidden rounded-2xl bg-white text-left shadow-sm ring-1 ring-slate-200"
                       >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={URL.createObjectURL(photo)}
                           alt={`Selected property photo ${index + 1}`}
