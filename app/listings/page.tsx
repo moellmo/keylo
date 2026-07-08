@@ -2,6 +2,9 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import ListingsClient from "./ListingsClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type PropertyPhoto = {
   photo_url: string;
   sort_order: number | null;
