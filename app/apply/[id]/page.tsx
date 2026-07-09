@@ -57,6 +57,64 @@ type TenantProfile = {
   profile_status: string | null;
 };
 
+function hasText(value: string | null | undefined) {
+  return !!value && value.trim().length > 0;
+}
+
+function isValidPastDate(value: string | null | undefined) {
+  if (!value) return false;
+
+  const parsed = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return parsed < today;
+}
+
+function getMissingProfileItems(profile: TenantProfile | null) {
+  const missing: string[] = [];
+
+  if (!profile) {
+    return ["Tenant profile"];
+  }
+
+  if (!hasText(profile.legal_first_name)) missing.push("Legal first name");
+  if (!hasText(profile.legal_last_name)) missing.push("Legal last name");
+
+  if (!profile.date_of_birth) {
+    missing.push("Date of birth");
+  } else if (!isValidPastDate(profile.date_of_birth)) {
+    missing.push("Valid date of birth");
+  }
+
+  if (!hasText(profile.phone)) missing.push("Phone number");
+
+  if (!hasText(profile.current_street_address)) {
+    missing.push("Current street address");
+  }
+
+  if (!hasText(profile.current_city)) missing.push("Current city");
+  if (!hasText(profile.current_state)) missing.push("Current state");
+  if (!hasText(profile.current_zip_code)) missing.push("Current ZIP code");
+
+  if (!hasText(profile.employment_status)) {
+    missing.push("Employment status");
+  }
+
+  if (!profile.monthly_income || Number(profile.monthly_income) <= 0) {
+    missing.push("Monthly income");
+  }
+
+  if (!profile.household_size || Number(profile.household_size) <= 0) {
+    missing.push("Household size");
+  }
+
+  return missing;
+}
+
 export default function ApplyPage() {
   const params = useParams();
   const router = useRouter();
@@ -81,6 +139,7 @@ export default function ApplyPage() {
   useEffect(() => {
     async function loadApplicationPage() {
       setLoading(true);
+      setMessage("");
 
       const {
         data: { user },
@@ -121,8 +180,8 @@ export default function ApplyPage() {
       const { data: propertyRow, error: propertyError } = await supabase
         .from("properties")
         .select(
-  "id, title, monthly_rent, city, state, bedrooms, bathrooms, status, landlord_id, landlord_company_id"
-)
+          "id, title, monthly_rent, city, state, bedrooms, bathrooms, status, landlord_id, landlord_company_id"
+        )
         .eq("id", propertyId)
         .eq("status", "published")
         .single();
@@ -188,23 +247,8 @@ export default function ApplyPage() {
     loadApplicationPage();
   }, [propertyId]);
 
-  function profileIsComplete() {
-    if (!tenantProfile) return false;
-
-    return (
-      !!tenantProfile.legal_first_name &&
-      !!tenantProfile.legal_last_name &&
-      !!tenantProfile.date_of_birth &&
-      !!tenantProfile.phone &&
-      !!tenantProfile.current_street_address &&
-      !!tenantProfile.current_city &&
-      !!tenantProfile.current_state &&
-      !!tenantProfile.current_zip_code &&
-      !!tenantProfile.employment_status &&
-      !!tenantProfile.monthly_income &&
-      !!tenantProfile.household_size
-    );
-  }
+  const missingProfileItems = getMissingProfileItems(tenantProfile);
+  const complete = missingProfileItems.length === 0;
 
   async function submitApplication() {
     if (!userId || !property || !tenantProfile || !basicProfile) {
@@ -212,8 +256,12 @@ export default function ApplyPage() {
       return;
     }
 
-    if (!profileIsComplete()) {
-      setMessage("Please complete your Instant Apply profile before applying.");
+    if (!complete) {
+      setMessage(
+        `Please complete your Instant Apply profile. Missing: ${missingProfileItems.join(
+          ", "
+        )}.`
+      );
       return;
     }
 
@@ -225,84 +273,86 @@ export default function ApplyPage() {
     setSubmitting(true);
     setMessage("");
 
-   const { data: newApplication, error } = await supabase
-  .from("applications")
-.insert({
-  property_id: property.id,
-  tenant_id: userId,
-  landlord_id: property.landlord_id,
-  landlord_company_id: property.landlord_company_id,
+    const { data: newApplication, error } = await supabase
+      .from("applications")
+      .insert({
+        property_id: property.id,
+        tenant_id: userId,
+        landlord_id: property.landlord_id,
+        landlord_company_id: property.landlord_company_id,
 
-      first_name: tenantProfile.legal_first_name,
-      last_name: tenantProfile.legal_last_name,
-      email: basicProfile.email,
-      phone: tenantProfile.phone,
+        first_name: tenantProfile.legal_first_name,
+        last_name: tenantProfile.legal_last_name,
+        email: basicProfile.email,
+        phone: tenantProfile.phone,
 
-      monthly_income: tenantProfile.monthly_income,
-      household_size: tenantProfile.household_size,
-      pets: tenantProfile.pets,
-      move_in_date: moveInDate || tenantProfile.desired_move_in_date || null,
+        monthly_income: tenantProfile.monthly_income,
+        household_size: tenantProfile.household_size,
+        pets: tenantProfile.pets,
+        move_in_date: moveInDate || tenantProfile.desired_move_in_date || null,
 
-      legal_first_name: tenantProfile.legal_first_name,
-      legal_last_name: tenantProfile.legal_last_name,
-      date_of_birth: tenantProfile.date_of_birth,
+        legal_first_name: tenantProfile.legal_first_name,
+        legal_last_name: tenantProfile.legal_last_name,
+        date_of_birth: tenantProfile.date_of_birth,
 
-      current_street_address: tenantProfile.current_street_address,
-      current_city: tenantProfile.current_city,
-      current_state: tenantProfile.current_state,
-      current_zip_code: tenantProfile.current_zip_code,
+        current_street_address: tenantProfile.current_street_address,
+        current_city: tenantProfile.current_city,
+        current_state: tenantProfile.current_state,
+        current_zip_code: tenantProfile.current_zip_code,
 
-      employment_status: tenantProfile.employment_status,
-      employer_name: tenantProfile.employer_name,
-      job_title: tenantProfile.job_title,
-      additional_income: tenantProfile.additional_income,
+        employment_status: tenantProfile.employment_status,
+        employer_name: tenantProfile.employer_name,
+        job_title: tenantProfile.job_title,
+        additional_income: tenantProfile.additional_income,
 
-      desired_move_in_date:
-        moveInDate || tenantProfile.desired_move_in_date || null,
+        desired_move_in_date:
+          moveInDate || tenantProfile.desired_move_in_date || null,
 
-      current_landlord_name: tenantProfile.current_landlord_name,
-      current_landlord_phone: tenantProfile.current_landlord_phone,
-      current_landlord_email: tenantProfile.current_landlord_email,
+        current_landlord_name: tenantProfile.current_landlord_name,
+        current_landlord_phone: tenantProfile.current_landlord_phone,
+        current_landlord_email: tenantProfile.current_landlord_email,
 
-      emergency_contact_name: tenantProfile.emergency_contact_name,
-      emergency_contact_phone: tenantProfile.emergency_contact_phone,
-      emergency_contact_relationship:
-        tenantProfile.emergency_contact_relationship,
+        emergency_contact_name: tenantProfile.emergency_contact_name,
+        emergency_contact_phone: tenantProfile.emergency_contact_phone,
+        emergency_contact_relationship:
+          tenantProfile.emergency_contact_relationship,
 
-      tenant_profile_status: tenantProfile.profile_status || "incomplete",
-      tenant_document_count: documentCount,
+        tenant_profile_status: tenantProfile.profile_status || "complete",
+        tenant_document_count: documentCount,
 
-           status: "submitted",
-    })
-    .select("id")
-    .single();
+        status: "submitted",
+      })
+      .select("id")
+      .single();
 
     if (error) {
-  setMessage(error.message);
-  setSubmitting(false);
-  return;
-}
+      setMessage(error.message);
+      setSubmitting(false);
+      return;
+    }
 
-if (!newApplication?.id) {
-  setMessage("Application was submitted, but the confirmation could not be loaded.");
-  setSubmitting(false);
-  return;
-}
+    if (!newApplication?.id) {
+      setMessage(
+        "Application was submitted, but the confirmation could not be loaded."
+      );
+      setSubmitting(false);
+      return;
+    }
 
-await createCompanyNotifications({
-  companyId: property.landlord_company_id,
-  fallbackUserId: property.landlord_id,
-  roles: ["owner", "admin", "manager"],
-  title: "New application received",
-  message: `${
-    tenantProfile.legal_first_name || "A tenant"
-  } applied for ${property.title}.`,
-  type: "application_submitted",
-  targetUrl: `/dashboard/landlord/applications/${newApplication.id}`,
-  dedupe: true,
-});
+    await createCompanyNotifications({
+      companyId: property.landlord_company_id,
+      fallbackUserId: property.landlord_id,
+      roles: ["owner", "admin", "manager"],
+      title: "New application received",
+      message: `${
+        tenantProfile.legal_first_name || "A tenant"
+      } applied for ${property.title}.`,
+      type: "application_submitted",
+      targetUrl: `/dashboard/landlord/applications/${newApplication.id}`,
+      dedupe: true,
+    });
 
-router.push("/dashboard/tenant");
+    router.push("/dashboard/tenant");
   }
 
   if (loading) {
@@ -336,12 +386,13 @@ router.push("/dashboard/tenant");
     );
   }
 
-  const complete = profileIsComplete();
-
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <Link href={`/listings/${property.id}`} className="text-sm font-bold text-slate-600">
+        <Link
+          href={`/listings/${property.id}`}
+          className="text-sm font-bold text-slate-600"
+        >
           ← Back to Listing
         </Link>
 
@@ -371,6 +422,25 @@ router.push("/dashboard/tenant");
             </div>
           )}
 
+          {!complete && (
+            <div className="mt-6 rounded-2xl bg-amber-50 p-5 font-bold text-amber-900 ring-1 ring-amber-200">
+              <p className="text-lg font-black">
+                Complete these profile items before applying:
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {missingProfileItems.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full bg-white px-3 py-2 text-sm font-black text-amber-900 ring-1 ring-amber-200"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 grid gap-5 md:grid-cols-3">
             <div className="rounded-3xl bg-[#f7f4ef] p-6">
               <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
@@ -383,11 +453,11 @@ router.push("/dashboard/tenant");
 
               {!complete && (
                 <Link
-  href={`/dashboard/tenant/profile?returnTo=/apply/${property.id}`}
-  className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
->
-  Complete Profile
-</Link>
+                  href={`/dashboard/tenant/profile?returnTo=/apply/${property.id}`}
+                  className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
+                >
+                  Complete Profile
+                </Link>
               )}
             </div>
 
@@ -401,11 +471,11 @@ router.push("/dashboard/tenant");
               </p>
 
               <Link
-  href={`/dashboard/tenant/documents?returnTo=/apply/${property.id}`}
-  className="mt-4 inline-flex rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black"
->
-  Manage Documents
-</Link>
+                href={`/dashboard/tenant/documents?returnTo=/apply/${property.id}`}
+                className="mt-4 inline-flex rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black"
+              >
+                Manage Documents
+              </Link>
             </div>
 
             <div className="rounded-3xl bg-[#f7f4ef] p-6">
@@ -414,7 +484,7 @@ router.push("/dashboard/tenant");
               </p>
 
               <p className="mt-3 text-2xl font-black">
-                {alreadyApplied ? "Submitted" : "Ready"}
+                {alreadyApplied ? "Submitted" : complete ? "Ready" : "Blocked"}
               </p>
             </div>
           </div>
@@ -425,8 +495,8 @@ router.push("/dashboard/tenant");
             {tenantProfile ? (
               <div className="mt-5 grid gap-4 text-sm font-bold text-slate-600 md:grid-cols-2">
                 <p>
-                  Name: {tenantProfile.legal_first_name}{" "}
-                  {tenantProfile.legal_last_name}
+                  Name: {tenantProfile.legal_first_name || "Missing"}{" "}
+                  {tenantProfile.legal_last_name || ""}
                 </p>
 
                 <p>Email: {basicProfile?.email || "Not provided"}</p>
@@ -490,10 +560,10 @@ router.push("/dashboard/tenant");
             {submitting
               ? "Submitting..."
               : alreadyApplied
-              ? "Already Applied"
-              : complete
-              ? "Submit Instant Application"
-              : "Complete Profile to Apply"}
+                ? "Already Applied"
+                : complete
+                  ? "Submit Instant Application"
+                  : "Complete Profile to Apply"}
           </button>
         </div>
       </div>

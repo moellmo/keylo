@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type TenantProfile = {
@@ -55,6 +55,19 @@ const emptyProfile: TenantProfile = {
   emergency_contact_relationship: "",
 };
 
+function isValidPastDate(value: string) {
+  if (!value) return false;
+
+  const parsed = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return parsed < today;
+}
+
 export default function TenantProfilePage() {
   return (
     <Suspense
@@ -72,23 +85,32 @@ export default function TenantProfilePage() {
 }
 
 function TenantProfileContent() {
+  const messageRef = useRef<HTMLDivElement | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tenantId, setTenantId] = useState("");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error" | "info">(
+    "info"
+  );
+  const [hasSaved, setHasSaved] = useState(false);
   const [profile, setProfile] = useState<TenantProfile>(emptyProfile);
+
   const searchParams = useSearchParams();
-const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
+  const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
 
   useEffect(() => {
     async function loadProfile() {
       setLoading(true);
+      setMessage("");
 
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) {
+        setMessageType("error");
         setMessage("Please log in to edit your tenant profile.");
         setLoading(false);
         return;
@@ -103,6 +125,7 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
         .maybeSingle();
 
       if (error) {
+        setMessageType("error");
         setMessage(error.message);
         setLoading(false);
         return;
@@ -149,6 +172,7 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
   }, []);
 
   function updateField(field: keyof TenantProfile, value: string) {
+    setHasSaved(false);
     setProfile((current) => ({
       ...current,
       [field]: value,
@@ -170,19 +194,58 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
       profile.household_size,
     ];
 
-    const complete = requiredFields.every((value) => value.trim() !== "");
+    const complete =
+      requiredFields.every((value) => value.trim() !== "") &&
+      isValidPastDate(profile.date_of_birth) &&
+      Number(profile.monthly_income) > 0 &&
+      Number(profile.household_size) > 0;
 
     return complete ? "complete" : "incomplete";
   }
 
+  function getMissingItems() {
+    const missing: string[] = [];
+
+    if (!profile.legal_first_name.trim()) missing.push("Legal first name");
+    if (!profile.legal_last_name.trim()) missing.push("Legal last name");
+
+    if (!profile.date_of_birth) {
+      missing.push("Date of birth");
+    } else if (!isValidPastDate(profile.date_of_birth)) {
+      missing.push("Valid date of birth");
+    }
+
+    if (!profile.phone.trim()) missing.push("Phone");
+    if (!profile.current_street_address.trim()) missing.push("Street address");
+    if (!profile.current_city.trim()) missing.push("City");
+    if (!profile.current_state.trim()) missing.push("State");
+    if (!profile.current_zip_code.trim()) missing.push("ZIP code");
+    if (!profile.employment_status.trim()) missing.push("Employment status");
+
+    if (!profile.monthly_income || Number(profile.monthly_income) <= 0) {
+      missing.push("Monthly income");
+    }
+
+    if (!profile.household_size || Number(profile.household_size) <= 0) {
+      missing.push("Household size");
+    }
+
+    return missing;
+  }
+
   async function saveProfile() {
     if (!tenantId) {
+      setMessageType("error");
       setMessage("You must be logged in to save your profile.");
       return;
     }
 
     setSaving(true);
     setMessage("");
+    setHasSaved(false);
+
+    const status = calculateStatus();
+    const missingItems = getMissingItems();
 
     const payload = {
       tenant_id: tenantId,
@@ -215,24 +278,38 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
       emergency_contact_phone: profile.emergency_contact_phone.trim(),
       emergency_contact_relationship:
         profile.emergency_contact_relationship.trim(),
-      profile_status: calculateStatus(),
+      profile_status: status,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase
-      .from("tenant_profiles")
-      .upsert(payload, {
-        onConflict: "tenant_id",
-      });
+    const { error } = await supabase.from("tenant_profiles").upsert(payload, {
+      onConflict: "tenant_id",
+    });
 
     if (error) {
+      setMessageType("error");
       setMessage(error.message);
       setSaving(false);
       return;
     }
 
-    setMessage("Tenant profile saved.");
+    setMessageType(status === "complete" ? "success" : "info");
+    setMessage(
+      status === "complete"
+        ? "Tenant profile saved. Your profile is complete and you can continue your application."
+        : `Tenant profile saved, but it is still incomplete. Missing: ${missingItems.join(
+            ", "
+          )}.`
+    );
+    setHasSaved(true);
     setSaving(false);
+
+    setTimeout(() => {
+      messageRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
   }
 
   if (loading) {
@@ -245,30 +322,58 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
     );
   }
 
+  const status = calculateStatus();
+
   return (
     <main className="min-h-screen bg-[#f7f4ef] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
         <Link href={returnTo} className="text-sm font-bold text-slate-600">
-  ← {returnTo.startsWith("/apply/") ? "Back to Application" : "Back to Tenant Dashboard"}
-</Link>
+          ←{" "}
+          {returnTo.startsWith("/apply/")
+            ? "Back to Application"
+            : "Back to Tenant Dashboard"}
+        </Link>
 
         <div className="mt-6 rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
           <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
             Keylo Instant Apply
           </p>
 
-          <h1 className="mt-3 text-5xl font-black tracking-tight">
-            Tenant Profile
-          </h1>
+          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h1 className="text-5xl font-black tracking-tight">
+                Tenant Profile
+              </h1>
 
-          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            Fill this out once and use it for future rental applications. This
-            is the foundation for Instant Apply, verification, screening, leases,
-            and Keylo Score.
-          </p>
+              <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+                Fill this out once and use it for future rental applications.
+                This is the foundation for Instant Apply, verification,
+                screening, leases, and Keylo Score.
+              </p>
+            </div>
+
+            <span
+              className={`w-fit rounded-full px-4 py-2 text-sm font-black ${
+                status === "complete"
+                  ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                  : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+              }`}
+            >
+              {status === "complete" ? "Profile Complete" : "Profile Incomplete"}
+            </span>
+          </div>
 
           {message && (
-            <div className="mt-6 rounded-2xl bg-slate-100 px-5 py-4 font-bold text-slate-800">
+            <div
+              ref={messageRef}
+              className={`mt-6 rounded-2xl px-5 py-4 font-bold ring-1 ${
+                messageType === "success"
+                  ? "bg-green-50 text-green-700 ring-green-200"
+                  : messageType === "error"
+                    ? "bg-red-50 text-red-700 ring-red-200"
+                    : "bg-amber-50 text-amber-800 ring-amber-200"
+              }`}
+            >
               {message}
             </div>
           )}
@@ -477,14 +582,21 @@ const returnTo = searchParams.get("returnTo") || "/dashboard/tenant";
           >
             {saving ? "Saving..." : "Save Tenant Profile"}
           </button>
+
           <Link
-  href={returnTo}
-  className="mt-4 flex w-full justify-center rounded-full border border-slate-300 bg-white px-6 py-4 font-black text-slate-950"
->
-  {returnTo.startsWith("/apply/")
-    ? "Continue Application"
-    : "Back to Dashboard"}
-</Link>
+            href={returnTo}
+            className={`mt-4 flex w-full justify-center rounded-full px-6 py-4 font-black ${
+              hasSaved && status === "complete" && returnTo.startsWith("/apply/")
+                ? "bg-green-600 text-white"
+                : "border border-slate-300 bg-white text-slate-950"
+            }`}
+          >
+            {returnTo.startsWith("/apply/")
+              ? hasSaved && status === "complete"
+                ? "Continue Application"
+                : "Back to Application"
+              : "Back to Dashboard"}
+          </Link>
         </div>
       </div>
     </main>
